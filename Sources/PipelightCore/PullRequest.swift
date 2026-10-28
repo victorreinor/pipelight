@@ -9,20 +9,22 @@ public struct PullRequest: Decodable, Equatable, Sendable {
     /// OPEN, MERGED or CLOSED.
     public var state: String
     public var isDraft: Bool
+    /// The branch it merges into ("master"): merging publishes there.
+    public var baseBranch: String
     public var headSha: String
     public var checks: [Check]
 
-    public static let ghFields = "number,title,url,author,state,isDraft,headRefOid,statusCheckRollup"
+    public static let ghFields = "number,title,url,author,state,isDraft,baseRefName,headRefOid,statusCheckRollup"
 
     enum CodingKeys: String, CodingKey {
-        case number, title, url, author, state, isDraft, headRefOid, statusCheckRollup
+        case number, title, url, author, state, isDraft, baseRefName, headRefOid, statusCheckRollup
     }
 
     struct Login: Decodable { let login: String }
 
     public init(
         number: Int, title: String, url: String = "", author: String = "", state: String = "OPEN",
-        isDraft: Bool = false, headSha: String, checks: [Check]
+        isDraft: Bool = false, baseBranch: String = "master", headSha: String, checks: [Check]
     ) {
         self.number = number
         self.title = title
@@ -30,6 +32,7 @@ public struct PullRequest: Decodable, Equatable, Sendable {
         self.author = author
         self.state = state
         self.isDraft = isDraft
+        self.baseBranch = baseBranch
         self.headSha = headSha
         self.checks = checks
     }
@@ -42,6 +45,7 @@ public struct PullRequest: Decodable, Equatable, Sendable {
         author = try c.decodeIfPresent(Login.self, forKey: .author)?.login ?? ""
         state = try c.decodeIfPresent(String.self, forKey: .state) ?? "OPEN"
         isDraft = try c.decodeIfPresent(Bool.self, forKey: .isDraft) ?? false
+        baseBranch = try c.decodeIfPresent(String.self, forKey: .baseRefName) ?? ""
         headSha = try c.decodeIfPresent(String.self, forKey: .headRefOid) ?? ""
         checks = try c.decodeIfPresent([Check].self, forKey: .statusCheckRollup) ?? []
     }

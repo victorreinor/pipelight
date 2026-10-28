@@ -8,16 +8,23 @@ enum StatusIcons {
     static let red = NSColor.systemRed
     static let amber = NSColor.systemOrange
     static let gray = NSColor.systemGray
-    /// "Something new": the dot for a queued PR that finished since the menu was last opened. Blue,
-    /// so it never reads as a status color.
-    static let badgeColor = NSColor.systemBlue
+
+    /// The dot of a queued PR whose base branch is free: blue when it can be merged (blue never reads
+    /// as a branch status), orange while its own CI still runs, red when that CI broke.
+    static func badgeColor(_ signal: QueuedPR.Signal) -> NSColor {
+        switch signal {
+        case .ready: return .systemBlue
+        case .checksRunning: return amber
+        case .checksFailed: return red
+        }
+    }
 
     /// Frames of the spinning icon shown while something runs.
     static let spinFrames = 12
 
-    static func menuBar(_ overall: Overall, frame: Int = 0, badge: Bool = false) -> NSImage {
+    static func menuBar(_ overall: Overall, frame: Int = 0, badge: QueuedPR.Signal? = nil) -> NSImage {
         let image = menuBarBase(overall, frame: frame)
-        return badge ? badged(image) : image
+        return badge.map { badged(image, color: badgeColor($0)) } ?? image
     }
 
     private static func menuBarBase(_ overall: Overall, frame: Int) -> NSImage {
@@ -39,9 +46,9 @@ enum StatusIcons {
     }
 
     /// The icon in front of a branch or PR row. nil state = still loading (or no checks yet).
-    static func row(_ state: RunState?, error: Bool = false, badge: Bool = false) -> NSImage {
+    static func row(_ state: RunState?, error: Bool = false, badge: QueuedPR.Signal? = nil) -> NSImage {
         let image = rowBase(state, error: error)
-        return badge ? badged(image) : image
+        return badge.map { badged(image, color: badgeColor($0)) } ?? image
     }
 
     private static func rowBase(_ state: RunState?, error: Bool) -> NSImage {
@@ -78,8 +85,8 @@ enum StatusIcons {
     }
 
     /// `image` with a small dot on its top-right corner, cut out from the icon by a thin ring so it
-    /// stands out on green and red alike.
-    static func badged(_ image: NSImage) -> NSImage {
+    /// stands out even on an icon of its own color.
+    static func badged(_ image: NSImage, color: NSColor) -> NSImage {
         let diameter = (image.size.height * 0.47).rounded()
         let size = NSSize(width: image.size.width + diameter * 0.3, height: image.size.height + diameter * 0.2)
         let badged = NSImage(size: size, flipped: false) { _ in
@@ -96,7 +103,7 @@ enum StatusIcons {
             NSGraphicsContext.current?.compositingOperation = .destinationOut
             NSBezierPath(ovalIn: dot.insetBy(dx: -1.5, dy: -1.5)).fill()
             NSGraphicsContext.current?.compositingOperation = .sourceOver
-            badgeColor.setFill()
+            color.setFill()
             NSBezierPath(ovalIn: dot).fill()
             return true
         }

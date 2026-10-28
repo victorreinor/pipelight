@@ -2,7 +2,7 @@ import AppKit
 import PipelightCore
 
 /// The menu bar item: the icon sums up every branch (spinning while something runs, with a dot when
-/// a queued PR finished) and the menu lists the queue and each branch. The menu is rebuilt right
+/// a queued PR's base branch is free) and the menu lists the queue and each branch. The menu is rebuilt right
 /// before it opens and on every update while it's open; the add-PR submenu, each time it opens.
 @MainActor
 final class StatusController: NSObject, NSMenuDelegate {
@@ -37,8 +37,8 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     private func updateIcon() {
         let overall = monitor.overall
-        item.button?.image = StatusIcons.menuBar(overall, frame: spinFrame, badge: monitor.hasUnseen)
-        item.button?.toolTip = tooltip(overall) + (monitor.hasUnseen ? " · um PR da fila terminou" : "")
+        item.button?.image = StatusIcons.menuBar(overall, frame: spinFrame, badge: monitor.queueSignal)
+        item.button?.toolTip = tooltip(overall) + (monitor.queueSignal.map(queueTooltip) ?? "")
         if case .running = overall {
             startSpinning()
         } else {
@@ -55,7 +55,7 @@ final class StatusController: NSObject, NSMenuDelegate {
                 guard let self else { return }
                 self.spinFrame = (self.spinFrame + 1) % StatusIcons.spinFrames
                 self.item.button?.image = StatusIcons.menuBar(self.monitor.overall, frame: self.spinFrame,
-                                                              badge: self.monitor.hasUnseen)
+                                                              badge: self.monitor.queueSignal)
             }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -72,6 +72,14 @@ final class StatusController: NSObject, NSMenuDelegate {
         }
     }
 
+    private func queueTooltip(_ signal: QueuedPR.Signal) -> String {
+        switch signal {
+        case .ready: return " · PR da fila pronto para mergear"
+        case .checksRunning: return " · branch livre, CI do PR da fila ainda rodando"
+        case .checksFailed: return " · branch livre, CI do PR da fila quebrou"
+        }
+    }
+
     // MARK: Menu
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -85,9 +93,6 @@ final class StatusController: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         guard menu === self.menu else { return }
         menuIsOpen = true
-        // The rows built a moment ago still show which PRs are new; the menu bar dot can go.
-        monitor.markQueueSeen()
-        updateIcon()
         Notifier.shared.loadStatus { [weak self] in self?.update() }
         if (monitor.lastUpdate?.timeIntervalSinceNow ?? -.infinity) < -10 {
             monitor.refresh()

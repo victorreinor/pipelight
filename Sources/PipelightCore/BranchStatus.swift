@@ -23,6 +23,9 @@ public struct BranchStatus: Equatable, Sendable {
     }
 
     public var state: RunState? { headline?.state }
+
+    /// A run is going: queued, running or waiting for approval.
+    public var isActive: Bool { headline?.isActive == true }
 }
 
 /// The single state the menu bar icon shows for every watched branch together.

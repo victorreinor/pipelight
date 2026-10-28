@@ -38,16 +38,27 @@ public enum Format {
         return cut.trimmingCharacters(in: .whitespaces.union(.punctuationCharacters)) + "…"
     }
 
-    /// What a queued PR's checks are doing: "rodando há 4 min", "passou · há 2 min".
+    /// A queued PR's row: its base branch, then its CI. "esperando o master · CI passou há 2 min",
+    /// "pronto para mergear · master livre", "master livre · CI rodando há 4 min".
     public static func summary(of pr: QueuedPR, now: Date) -> String {
+        let ci = checks(of: pr, now: now)
+        guard let base = pr.base, let busy = pr.baseBusy else { return ci }
+        if busy {
+            return "esperando o \(base) · \(ci)"
+        }
+        return pr.signal == .ready ? "pronto para mergear · \(base) livre" : "\(base) livre · \(ci)"
+    }
+
+    /// What a queued PR's own CI is doing: "CI rodando há 4 min", "CI passou há 2 min".
+    static func checks(of pr: QueuedPR, now: Date) -> String {
         switch pr.checks {
         case nil: return "esperando os checks"
-        case .queued: return "na fila"
-        case .running: return "rodando há \(duration(now.timeIntervalSince(pr.startedAt ?? now)))"
-        case .waiting: return "aguardando aprovação"
-        case .passed: return pr.finishedAt.map { "passou · \(ago($0, now: now))" } ?? "passou"
-        case .failed: return pr.finishedAt.map { "quebrou · \(ago($0, now: now))" } ?? "quebrou"
-        case .cancelled: return "cancelado"
+        case .queued: return "CI na fila"
+        case .running: return "CI rodando há \(duration(now.timeIntervalSince(pr.startedAt ?? now)))"
+        case .waiting: return "CI aguardando aprovação"
+        case .passed: return pr.finishedAt.map { "CI passou \(ago($0, now: now))" } ?? "CI passou"
+        case .failed: return pr.finishedAt.map { "CI quebrou \(ago($0, now: now))" } ?? "CI quebrou"
+        case .cancelled: return "CI cancelado"
         case .neutral: return "sem checks"
         }
     }

@@ -138,13 +138,14 @@ enum MenuBuilder {
 
     // MARK: PR queue
 
-    /// "orodruin-3 #5586  passou · há 2 min", with the PR title and author below. Clicking opens the PR.
+    /// "orodruin-3 #5586  pronto para mergear · master livre", with the PR title and author below.
+    /// Clicking opens the PR.
     private static func queueRow(_ pr: QueuedPR, error: String?, now: Date, target: AnyObject?) -> NSMenuItem {
         let summary = Format.summary(of: pr, now: now)
         let title = boldLead(pr.ref.shortName, rest: summary)
         let item = action("\(pr.ref.shortName)  \(summary)", #selector(StatusController.openLink(_:)), target: target)
         item.attributedTitle = title
-        item.image = StatusIcons.row(pr.checks, error: error != nil && pr.checks == nil, badge: pr.unseen)
+        item.image = StatusIcons.row(pr.checks, error: error != nil && pr.checks == nil, badge: pr.signal)
         item.representedObject = pr.url
         item.toolTip = [pr.title, error].compactMap { $0 }.joined(separator: "\n")
         setDetail(error ?? [Format.truncate(pr.title, to: 56), pr.author].filter { !$0.isEmpty }.joined(separator: " · "),

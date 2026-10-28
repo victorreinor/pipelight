@@ -31,6 +31,9 @@ final class Monitor {
     private(set) var queue: [QueuedPR] = []
     /// Why the last look at a queued PR failed, by `PRRef.id`.
     private(set) var queueErrors: [String: String] = [:]
+    /// Base branches of queued PRs that aren't in the config, by `Target.id`: asked about for the queue
+    /// only, never shown or notified as branches.
+    private var queueBases: [String: BranchStatus] = [:]
     private(set) var candidates = PRCandidates()
     private(set) var lastUpdate: Date?
     private(set) var isRefreshing = false
@@ -56,9 +59,9 @@ final class Monitor {
         Overall(config.targets.map { states[$0.id]?.status })
     }
 
-    /// A queued PR finished since the menu was last opened: the menu bar icon shows a dot.
-    var hasUnseen: Bool {
-        queue.contains(where: \.unseen)
+    /// A queued PR's base branch is free: the menu bar icon shows a dot of this color.
+    var queueSignal: QueuedPR.Signal? {
+        .strongest(in: queue)
     }
 
     func start() {
@@ -80,15 +83,28 @@ final class Monitor {
         timer?.invalidate()
         loadConfigIfChanged()
         let targets = config.targets
+        let watched = Set(targets.map(\.id))
+        let bases = Array(Set(queue.compactMap { pr in pr.base.map { baseTarget(repo: pr.ref.repo, branch: $0) } }))
+            .filter { !watched.contains($0.id) }
         let refs = queue.map(\.ref)
         isRefreshing = true
         onChange?()
         Task {
             async let branches = Self.fetch(targets) { try await GitHubCLI.runs(for: $0) }
+            async let baseRuns = Self.fetch(bases) { try await GitHubCLI.runs(for: $0) }
             async let prs = Self.fetch(refs) { try await GitHubCLI.pullRequest($0) }
             let branchResults = await branches
-            apply(branchResults)
-            apply(await prs)
+            let branchNotices = apply(branchResults)
+            apply(bases: await baseRuns)
+            let queueNotices = apply(await prs)
+            // A queued PR's notice about its base branch already tells how the run there ended.
+            let told = Set(queueNotices.compactMap(\.place))
+            for (place, notice) in branchNotices where !told.contains(place) {
+                onNotice?(notice)
+            }
+            for (_, notice) in queueNotices {
+                onNotice?(notice)
+            }
             finishRefresh(succeeded: targets.isEmpty || branchResults.contains { $0.1.isSuccess })
         }
     }
@@ -103,8 +119,11 @@ final class Monitor {
 
     // MARK: Branches
 
-    private func apply(_ results: [(Target, Result<[WorkflowRun], Error>)]) {
+    /// Returns the notifications for runs that just finished, with the place ("owner/name@branch",
+    /// lowercased) of each.
+    private func apply(_ results: [(Target, Result<[WorkflowRun], Error>)]) -> [(place: String, notice: Notice)] {
         let current = Set(config.targets.map(\.id))
+        var notices: [(place: String, notice: Notice)] = []
         for (target, result) in results where current.contains(target.id) {
             switch result {
             case .success(let runs):
@@ -112,13 +131,18 @@ final class Monitor {
                 let repo = Config.Repo(repo: target.repo, branches: []).name
                 for completion in tracker.completions(in: runs, target: target.id) {
                     if let notice = Notice(repo: repo, branch: target.branch, completion: completion) {
-                        onNotice?(notice)
+                        notices.append((Self.place(repo: target.repo, branch: target.branch), notice))
                     }
                 }
             case .failure(let error):
                 states[target.id, default: BranchState()].error = error.localizedDescription
             }
         }
+        return notices
+    }
+
+    nonisolated private static func place(repo: String, branch: String) -> String {
+        "\(repo.lowercased())@\(branch)"
     }
 
     private func finishRefresh(succeeded: Bool) {
@@ -136,9 +160,9 @@ final class Monitor {
     }
 
     private func scheduleNext() {
-        let running = config.targets.contains { states[$0.id]?.status?.state?.isActive == true }
-            || queue.contains { $0.checks?.isActive ?? true }
-        let interval = Polling.interval(targets: config.targets.count + queue.count, running: running)
+        let running = config.targets.contains { states[$0.id]?.status?.isActive == true }
+            || queue.contains { $0.checks?.isActive ?? true || $0.baseBusy == true }
+        let interval = Polling.interval(targets: config.targets.count + queue.count + queueBases.count, running: running)
         let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
@@ -171,7 +195,10 @@ final class Monitor {
 
     // MARK: PR queue
 
-    private func apply(_ results: [(PRRef, Result<PullRequest, Error>)]) {
+    /// Returns the notifications to post, with the place of the base branch when one is about it
+    /// getting free.
+    private func apply(_ results: [(PRRef, Result<PullRequest, Error>)]) -> [(place: String?, notice: Notice)] {
+        var notices: [(place: String?, notice: Notice)] = []
         for (ref, result) in results {
             // Removed from the queue while gh was answering.
             guard let index = queue.firstIndex(where: { $0.ref.id == ref.id }) else { continue }
@@ -181,8 +208,11 @@ final class Monitor {
                 queueErrors[ref.id] = nil
             case .success(let pr):
                 queueErrors[ref.id] = nil
-                if let notice = queue[index].update(with: pr, workflow: workflow(for: ref.repo)) {
-                    onNotice?(notice)
+                let before = queue[index]
+                let base = baseStatus(repo: before.ref.repo, branch: pr.baseBranch)
+                if let notice = queue[index].update(with: pr, baseStatus: base, workflow: workflow(for: ref.repo)) {
+                    let freed = before.base == pr.baseBranch && before.baseBusy == true && queue[index].baseBusy == false
+                    notices.append((freed ? Self.place(repo: ref.repo, branch: pr.baseBranch) : nil, notice))
                 }
             case .failure(let error):
                 queueErrors[ref.id] = error.localizedDescription
@@ -191,6 +221,28 @@ final class Monitor {
         if !results.isEmpty {
             saveQueue()
         }
+        return notices
+    }
+
+    /// Keeps what gh said about the queue's own base branches; a failed look keeps the last good one.
+    private func apply(bases results: [(Target, Result<[WorkflowRun], Error>)]) {
+        var kept: [String: BranchStatus] = [:]
+        for (target, result) in results {
+            kept[target.id] = (try? result.get()).map(BranchStatus.init(runs:)) ?? queueBases[target.id]
+        }
+        queueBases = kept
+    }
+
+    /// How a queued PR's base branch is asked about: as the config watches it (same workflow), or with
+    /// the repo's workflow when the branch isn't in the config.
+    private func baseTarget(repo: String, branch: String) -> Target {
+        config.targets.first { $0.repo.lowercased() == repo.lowercased() && $0.branch == branch }
+            ?? Target(repo: repo, branch: branch, workflow: workflow(for: repo))
+    }
+
+    private func baseStatus(repo: String, branch: String) -> BranchStatus? {
+        let target = baseTarget(repo: repo, branch: branch)
+        return states[target.id]?.status ?? queueBases[target.id]
     }
 
     /// Looks the PR up and starts watching it. Throws a short reason when it can't.
@@ -202,7 +254,8 @@ final class Monitor {
         // The link may spell the repo in another case; GitHub's URL has it right.
         let repo = PRRef.find(in: pr.url)?.repo ?? ref.repo
         guard !queue.contains(where: { $0.ref.id == ref.id }) else { return }
-        queue.append(QueuedPR(pr: pr, repo: repo, workflow: workflow(for: repo), now: Date()))
+        queue.append(QueuedPR(pr: pr, repo: repo, workflow: workflow(for: repo),
+                              baseStatus: baseStatus(repo: repo, branch: pr.baseBranch), now: Date()))
         saveQueue()
         onChange?()
         refresh()
@@ -212,15 +265,6 @@ final class Monitor {
         queue.removeAll(where: filter)
         saveQueue()
         onChange?()
-    }
-
-    /// Opening the menu shows every result, so the dot goes away.
-    func markQueueSeen() {
-        guard hasUnseen else { return }
-        for index in queue.indices {
-            queue[index].unseen = false
-        }
-        saveQueue()
     }
 
     /// The repo's workflow from config.json, so a PR's "CI" is the same one watched on its branches.

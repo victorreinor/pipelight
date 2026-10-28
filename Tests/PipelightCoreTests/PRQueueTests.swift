@@ -11,16 +11,21 @@ private func job(
           completedAt: status == "COMPLETED" ? finished.map { now.addingTimeInterval(-$0 * 60) } : nil)
 }
 
-private func pr(_ checks: [Check], sha: String = "a1", state: String = "OPEN") -> PullRequest {
+private func pr(_ checks: [Check], sha: String = "a1", state: String = "OPEN", base: String = "master") -> PullRequest {
     PullRequest(number: 42, title: "feat: vitrine", url: "https://github.com/acme/api/pull/42", author: "ana",
-                state: state, headSha: sha, checks: checks)
+                state: state, baseBranch: base, headSha: sha, checks: checks)
 }
+
+/// The base branch with a deploy going on, or after it ended.
+private let busy = BranchStatus(runs: [run(9, "in_progress", minutesAgo: 3), run(8, minutesAgo: 60)])
+private let free = BranchStatus(runs: [run(9, minutesAgo: 20, took: 15)])
+private let broken = BranchStatus(runs: [run(9, "completed", "failure", minutesAgo: 20, took: 15)])
 
 @Suite struct DecodingPullRequests {
     @Test func decodesPrViewWithJobsAndCommitStatuses() throws {
         let json = """
         {"number":5586,"title":"Melhoria","url":"https://github.com/acme/api/pull/5586","state":"OPEN","isDraft":false,
-         "author":{"login":"ana"},"headRefOid":"88d1",
+         "author":{"login":"ana"},"baseRefName":"master","headRefOid":"88d1",
          "statusCheckRollup":[
           {"__typename":"CheckRun","name":"build","workflowName":"CI","status":"IN_PROGRESS","conclusion":"",
            "startedAt":"2026-10-28T19:49:27Z","completedAt":"0001-01-01T00:00:00Z"},
@@ -30,6 +35,7 @@ private func pr(_ checks: [Check], sha: String = "a1", state: String = "OPEN") -
         let pr = try PullRequest.decode(Data(json.utf8))
         #expect(pr.author == "ana")
         #expect(pr.headSha == "88d1")
+        #expect(pr.baseBranch == "master")
         #expect(pr.isOpen)
         #expect(pr.checks.map(\.state) == [.running, .running])
         #expect(pr.checks[0].completedAt == nil)
@@ -98,54 +104,152 @@ private func pr(_ checks: [Check], sha: String = "a1", state: String = "OPEN") -
 }
 
 @Suite struct WatchingAQueuedPR {
-    @Test func addingAFinishedPRAnnouncesNothing() {
-        var queued = QueuedPR(pr: pr([job("build")]), repo: "acme/api", workflow: nil, now: now)
-        #expect(queued.checks == .passed)
-        #expect(queued.update(with: pr([job("build")]), workflow: nil) == nil)
-        #expect(!queued.unseen)
+    private func queued(_ checks: [Check], base: BranchStatus?) -> QueuedPR {
+        QueuedPR(pr: pr(checks), repo: "acme/api", workflow: nil, baseStatus: base, now: now)
     }
 
-    @Test func announcesOnceWhenChecksFinish() throws {
-        var queued = QueuedPR(pr: pr([job("build", "IN_PROGRESS")]), repo: "acme/api", workflow: nil, now: now)
-        #expect(queued.update(with: pr([job("build", "IN_PROGRESS")]), workflow: nil) == nil)
-        let finished = queued.update(with: pr([job("build")]), workflow: nil)
-        let notice = try #require(finished)
-        #expect(notice.title == "✅ api #42 passou")
-        #expect(notice.subtitle == "PR de ana · CI em 6 min")
-        #expect(notice.body == "feat: vitrine")
-        #expect(notice.fromQueue)
-        #expect(queued.unseen)
-        #expect(queued.update(with: pr([job("build")]), workflow: nil) == nil)
+    @Test func waitsWhileTheBaseBranchRuns() {
+        var queued = queued([job("build", "IN_PROGRESS")], base: busy)
+        #expect(queued.signal == nil)
+        // The PR's own CI finishing doesn't matter while the deploy goes on.
+        #expect(queued.update(with: pr([job("build")]), baseStatus: busy, workflow: nil) == nil)
+        #expect(queued.signal == nil)
     }
 
-    @Test func failureIsAnnounced() {
-        var queued = QueuedPR(pr: pr([job("build", "IN_PROGRESS")]), repo: "acme/api", workflow: nil, now: now)
-        let notice = queued.update(with: pr([job("build", "COMPLETED", "FAILURE")]), workflow: nil)
+    @Test func theBaseGettingFreeIsAnnouncedOnceWithThePRsState() throws {
+        var queued = queued([job("build")], base: busy)
+        let notice = queued.update(with: pr([job("build")]), baseStatus: free, workflow: nil)
+        let freed = try #require(notice)
+        #expect(freed.title == "✅ api · master passou")
+        #expect(freed.subtitle == "#42 pronto para mergear")
+        #expect(freed.body == "feat: vitrine")
+        #expect(freed.url == "https://github.com/acme/api/pull/42")
+        #expect(freed.fromQueue)
+        #expect(queued.signal == .ready)
+        #expect(queued.update(with: pr([job("build")]), baseStatus: free, workflow: nil) == nil)
+        #expect(queued.signal == .ready)
+    }
+
+    @Test func aBrokenDeployIsAnnouncedToo() {
+        var queued = queued([job("build")], base: busy)
+        let freed = queued.update(with: pr([job("build")]), baseStatus: broken, workflow: nil)
+        #expect(freed?.kind == .failed)
+        #expect(freed?.title == "❌ api · master quebrou")
+        #expect(freed?.subtitle == "#42 pronto para mergear")
+    }
+
+    @Test func freeWhileThePRsCIStillRunsThenReady() throws {
+        var queued = queued([job("build", "IN_PROGRESS")], base: busy)
+        let freed = queued.update(with: pr([job("build", "IN_PROGRESS")]), baseStatus: free, workflow: nil)
+        #expect(freed?.subtitle == "#42: CI do PR ainda rodando")
+        #expect(queued.signal == .checksRunning)
+        let notice = queued.update(with: pr([job("build")]), baseStatus: free, workflow: nil)
+        let ready = try #require(notice)
+        #expect(ready.title == "✅ api #42 pronto para mergear")
+        #expect(ready.subtitle == "master livre · CI em 6 min")
+        #expect(queued.signal == .ready)
+    }
+
+    @Test func freeWithThePRsCIBroken() {
+        var queued = queued([job("build", "IN_PROGRESS")], base: busy)
+        let freed = queued.update(with: pr([job("build", "COMPLETED", "FAILURE")]), baseStatus: free, workflow: nil)
+        #expect(freed?.subtitle == "#42: CI do PR quebrou")
+        #expect(queued.signal == .checksFailed)
+        // Already told in the notice above.
+        #expect(queued.update(with: pr([job("build", "COMPLETED", "FAILURE")]), baseStatus: free, workflow: nil) == nil)
+    }
+
+    @Test func thePRsCIBreakingWhileTheBaseIsFree() {
+        var queued = queued([job("build", "IN_PROGRESS")], base: free)
+        let notice = queued.update(with: pr([job("build", "COMPLETED", "FAILURE")]), baseStatus: free, workflow: nil)
         #expect(notice?.kind == .failed)
-        #expect(notice?.title == "❌ api #42 quebrou")
+        #expect(notice?.title == "❌ api #42: CI do PR quebrou")
+    }
+
+    @Test func anotherDeployTurnsTheDotOffUntilItEnds() {
+        var queued = queued([job("build")], base: free)
+        #expect(queued.signal == .ready)
+        #expect(queued.update(with: pr([job("build")]), baseStatus: busy, workflow: nil) == nil)
+        #expect(queued.signal == nil)
+        #expect(queued.update(with: pr([job("build")]), baseStatus: free, workflow: nil)?.subtitle == "#42 pronto para mergear")
+    }
+
+    @Test func addingAPRToAFreeBranchAnnouncesNothing() {
+        var queued = queued([job("build")], base: free)
+        #expect(queued.signal == .ready)
+        #expect(queued.update(with: pr([job("build")]), baseStatus: free, workflow: nil) == nil)
+    }
+
+    @Test func aBaseSeenForTheFirstTimeAnnouncesNothing() {
+        var queued = queued([job("build")], base: nil)
+        #expect(queued.signal == nil)
+        #expect(queued.update(with: pr([job("build")]), baseStatus: free, workflow: nil) == nil)
+        #expect(queued.signal == .ready)
+    }
+
+    @Test func anUnknownBaseKeepsTheLastLook() {
+        var queued = queued([job("build")], base: busy)
+        #expect(queued.update(with: pr([job("build")]), baseStatus: nil, workflow: nil) == nil)
+        #expect(queued.baseBusy == true)
+        #expect(queued.update(with: pr([job("build")]), baseStatus: free, workflow: nil) != nil)
+    }
+
+    @Test func retargetingForgetsTheOldBase() {
+        var queued = queued([job("build")], base: busy)
+        #expect(queued.update(with: pr([job("build")], base: "homolog"), baseStatus: free, workflow: nil) == nil)
+        #expect(queued.base == "homolog")
+        #expect(queued.signal == .ready)
     }
 
     @Test func aNewPushIsAnnouncedAgainAndCanBeAFix() {
-        var queued = QueuedPR(pr: pr([job("build", "COMPLETED", "FAILURE")], sha: "a1"), repo: "acme/api", workflow: nil, now: now)
-        #expect(queued.update(with: pr([job("build", "IN_PROGRESS")], sha: "b2"), workflow: nil) == nil)
-        #expect(queued.checks == .running)
-        let notice = queued.update(with: pr([job("build")], sha: "b2"), workflow: nil)
+        var queued = queued([job("build", "COMPLETED", "FAILURE")], base: free)
+        #expect(queued.update(with: pr([job("build", "IN_PROGRESS")], sha: "b2"), baseStatus: free, workflow: nil) == nil)
+        #expect(queued.signal == .checksRunning)
+        let notice = queued.update(with: pr([job("build")], sha: "b2"), baseStatus: free, workflow: nil)
         #expect(notice?.kind == .fixed)
-        #expect(notice?.title == "✅ api #42 voltou a passar")
+        #expect(notice?.title == "✅ api #42 pronto para mergear")
+        #expect(notice?.subtitle == "master livre · CI voltou a passar em 6 min")
+    }
+
+    @Test func theMenuBarShowsTheMostActionableDot() {
+        let running = queued([job("build", "IN_PROGRESS")], base: free)
+        let failed = queued([job("build", "COMPLETED", "FAILURE")], base: free)
+        let ready = queued([job("build")], base: free)
+        let waiting = queued([job("build")], base: busy)
+        #expect(QueuedPR.Signal.strongest(in: [waiting]) == nil)
+        #expect(QueuedPR.Signal.strongest(in: [running, waiting]) == .checksRunning)
+        #expect(QueuedPR.Signal.strongest(in: [running, failed]) == .checksFailed)
+        #expect(QueuedPR.Signal.strongest(in: [failed, ready, running]) == .ready)
     }
 
     @Test func savesAndLoads() throws {
-        let queued = QueuedPR(pr: pr([job("build", "IN_PROGRESS")]), repo: "acme/api", workflow: nil, now: now)
+        let queued = queued([job("build", "IN_PROGRESS")], base: busy)
         let data = try JSONEncoder().encode([queued])
         #expect(try JSONDecoder().decode([QueuedPR].self, from: data) == [queued])
     }
 
+    @Test func loadsAQueueSavedBeforeTheBaseBranch() throws {
+        let json = """
+        [{"addedAt":814915914,"announced":"a1:passed","author":"ana","checks":"passed","finishedAt":814875318,"headSha":"a1",
+          "ref":{"number":42,"repo":"acme/api"},"startedAt":814874390,"title":"feat: vitrine","unseen":false,
+          "url":"https://github.com/acme/api/pull/42"}]
+        """
+        var queued = try #require(try JSONDecoder().decode([QueuedPR].self, from: Data(json.utf8)).first)
+        #expect(queued.base == nil)
+        #expect(queued.update(with: pr([job("build")], sha: "a1"), baseStatus: free, workflow: nil) == nil)
+        #expect(queued.signal == .ready)
+    }
+
     @Test func summaryTexts() {
-        var queued = QueuedPR(pr: pr([job("build", "IN_PROGRESS", started: 4)]), repo: "acme/api", workflow: nil, now: now)
-        #expect(Format.summary(of: queued, now: now) == "rodando há 4 min")
-        _ = queued.update(with: pr([job("build", started: 10, finished: 2)]), workflow: nil)
-        #expect(Format.summary(of: queued, now: now) == "passou · há 2 min")
-        #expect(Format.summary(of: QueuedPR(pr: pr([]), repo: "acme/api", workflow: nil, now: now), now: now) == "esperando os checks")
+        var queued = queued([job("build", "IN_PROGRESS", started: 4)], base: nil)
+        #expect(Format.summary(of: queued, now: now) == "CI rodando há 4 min")
+        _ = queued.update(with: pr([job("build", started: 10, finished: 2)]), baseStatus: busy, workflow: nil)
+        #expect(Format.summary(of: queued, now: now) == "esperando o master · CI passou há 2 min")
+        _ = queued.update(with: pr([job("build", started: 10, finished: 2)]), baseStatus: free, workflow: nil)
+        #expect(Format.summary(of: queued, now: now) == "pronto para mergear · master livre")
+        _ = queued.update(with: pr([job("build", "IN_PROGRESS", started: 4)], sha: "b2"), baseStatus: free, workflow: nil)
+        #expect(Format.summary(of: queued, now: now) == "master livre · CI rodando há 4 min")
+        #expect(Format.summary(of: self.queued([], base: nil), now: now) == "esperando os checks")
     }
 }
 

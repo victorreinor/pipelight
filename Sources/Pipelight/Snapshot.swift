@@ -49,27 +49,28 @@ enum Snapshot {
             states[target.id] = BranchState(status: BranchStatus(runs: runs["\(target.repo)@\(target.branch)"] ?? []))
         }
         return MenuModel(config: config, states: states, lastUpdate: now, isRefreshing: false, configError: nil,
-                         notifyPassed: true, opensAtLogin: true, queue: queue, candidates: candidates, now: now)
+                         notifyPassed: true, opensAtLogin: true, queue: queue(states), candidates: candidates, now: now)
     }
 
-    /// One PR that just passed (not seen yet: the dot) and one still running.
-    private static var queue: [QueuedPR] {
-        func pr(_ number: Int, _ title: String, by author: String, _ checks: [Check]) -> PullRequest {
-            PullRequest(number: number, title: title, url: "https://github.com/acme/loja-api/pull/\(number)", author: author,
-                        headSha: "a\(number)", checks: checks)
+    /// One PR ready to merge (its base branch is free and its CI passed: the blue dot), one waiting
+    /// for its base branch to finish a run, and one whose base is free while its own CI still runs.
+    private static func queue(_ states: [String: BranchState]) -> [QueuedPR] {
+        func queued(_ repo: String, _ number: Int, _ title: String, by author: String, into base: String, _ check: Check) -> QueuedPR {
+            let pr = PullRequest(number: number, title: title, url: "https://github.com/\(repo)/pull/\(number)", author: author,
+                                 baseBranch: base, headSha: "a\(number)", checks: [check])
+            let baseStatus = states[Target(repo: repo, branch: base, workflow: "CI").id]?.status
+            return QueuedPR(pr: pr, repo: repo, workflow: "CI", baseStatus: baseStatus, now: now)
         }
-        let started = now.addingTimeInterval(-9 * 60)
-        var passed = QueuedPR(pr: pr(815, "fix: corrige o cálculo do frete para a região Norte", by: "bia",
-                                     [Check(name: "build", workflowName: "CI", status: "IN_PROGRESS", conclusion: "", startedAt: started)]),
-                              repo: "acme/loja-api", workflow: "CI", now: now)
-        _ = passed.update(with: pr(815, "fix: corrige o cálculo do frete para a região Norte", by: "bia",
-                                   [Check(name: "build", workflowName: "CI", startedAt: started, completedAt: now.addingTimeInterval(-2 * 60))]),
-                          workflow: "CI")
-        let running = QueuedPR(pr: pr(431, "feat: nova vitrine de ofertas na home", by: "caio",
-                                      [Check(name: "build", workflowName: "CI", status: "IN_PROGRESS", conclusion: "",
-                                             startedAt: now.addingTimeInterval(-5 * 60))]),
-                               repo: "acme/loja-web", workflow: "CI", now: now)
-        return [passed, running]
+        func passed(minutesAgo: Double) -> Check {
+            Check(name: "build", workflowName: "CI", startedAt: now.addingTimeInterval(-(minutesAgo + 6) * 60),
+                  completedAt: now.addingTimeInterval(-minutesAgo * 60))
+        }
+        return [
+            queued("acme/loja-api", 821, "feat: cupom de primeira compra", by: "voce", into: "master", passed(minutesAgo: 12)),
+            queued("acme/loja-api", 819, "fix: arredonda o desconto do Pix", by: "bia", into: "homolog", passed(minutesAgo: 9)),
+            queued("acme/loja-web", 431, "feat: nova vitrine de ofertas na home", by: "caio", into: "master",
+                   Check(name: "build", workflowName: "CI", status: "IN_PROGRESS", conclusion: "", startedAt: now.addingTimeInterval(-5 * 60))),
+        ]
     }
 
     private static var candidates: PRCandidates {
@@ -79,12 +80,12 @@ enum Snapshot {
         }
         return PRCandidates(
             mine: [
-                candidate("acme/loja-api", 812, "feat(checkout): parcelamento sem juros no cartão", by: "voce", minutesAgo: 18),
+                candidate("acme/loja-api", 821, "feat: cupom de primeira compra", by: "voce", minutesAgo: 14),
                 candidate("acme/loja-web", 436, "chore: troca o Moment.js pelo date-fns", by: "voce", minutesAgo: 190),
                 candidate("acme/app-mobile", 77, "feat: login com a Apple", by: "voce", minutesAgo: 2 * 1440, draft: true),
             ],
             reviewRequested: [
-                candidate("acme/loja-api", 815, "fix: corrige o cálculo do frete para a região Norte", by: "bia", minutesAgo: 2),
+                candidate("acme/loja-api", 819, "fix: arredonda o desconto do Pix", by: "bia", minutesAgo: 9),
                 candidate("acme/loja-web", 431, "feat: nova vitrine de ofertas na home", by: "caio", minutesAgo: 5),
                 candidate("acme/loja-api", 809, "refactor: separa o serviço de cupons do carrinho", by: "duda", minutesAgo: 1440),
             ],
@@ -104,7 +105,8 @@ enum Snapshot {
             drawWallpaper(in: bounds)
             let iconX = size.width - 330
             drawMenuBar(width: size.width, height: barHeight, top: size.height, iconX: iconX,
-                        icon: StatusIcons.menuBar(Overall(model.config.targets.map { model.states[$0.id]?.status }), badge: true),
+                        icon: StatusIcons.menuBar(Overall(model.config.targets.map { model.states[$0.id]?.status }),
+                                                  badge: .strongest(in: model.queue)),
                         open: true)
             // Like macOS, the menu opens under its icon and slides left when it would leave the screen.
             let menuX = min(iconX - 8, size.width - 14 - menu.size.width)
@@ -123,14 +125,16 @@ enum Snapshot {
         }
     }
 
-    /// The four looks of the menu bar icon, each with its caption.
+    /// The four looks of the menu bar icon, then the three colors of the queue's dot, each with its caption.
     private static func states() -> NSBitmapImageRep {
-        let cases: [(Overall, String, Bool)] = [
-            (.passed, "Tudo verde", false),
-            (.running(failing: false), "Rodando", false),
-            (.running(failing: true), "Rodando, mas algo\nestá quebrado", false),
-            (.failed, "Algo quebrou", false),
-            (.passed, "Um PR da fila\nterminou", true),
+        let cases: [(Overall, String, QueuedPR.Signal?)] = [
+            (.passed, "Tudo verde", nil),
+            (.running(failing: false), "Rodando", nil),
+            (.running(failing: true), "Rodando, mas algo\nestá quebrado", nil),
+            (.failed, "Algo quebrou", nil),
+            (.passed, "Branch livre: PR da\nfila pronto pra mergear", .ready),
+            (.passed, "Branch livre, mas o\nCI do PR ainda roda", .checksRunning),
+            (.passed, "Branch livre, mas o\nCI do PR quebrou", .checksFailed),
         ]
         let cell = NSSize(width: 190, height: 120)
         let size = NSSize(width: cell.width * CGFloat(cases.count) + 40, height: cell.height + 40)

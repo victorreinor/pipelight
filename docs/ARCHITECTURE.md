@@ -53,10 +53,20 @@ Também atualiza 5 s depois de o Mac acordar e ao abrir o menu, se os dados tive
 
 ## Fila de PRs (`QueuedPR` + `ChecksSummary`)
 
-- Fica em `~/Library/Application Support/Pipelight/queue.json` e é consultada em toda atualização, junto com os branches: `gh pr view N --repo R --json number,title,url,author,state,isDraft,headRefOid,statusCheckRollup`.
+A fila é para **publicar**: um PR espera o branch de destino (o `base` dele, ex.: `master`) ficar livre do deploy que está rodando, e o app diz se o CI do próprio PR já deixa mergear.
+
+- Fica em `~/Library/Application Support/Pipelight/queue.json` e é consultada em toda atualização, junto com os branches: `gh pr view N --repo R --json number,title,url,author,state,isDraft,baseRefName,headRefOid,statusCheckRollup`.
+- Branch de destino: se ele está na config, vale o status desse alvo (mesmo workflow). Senão, o `Monitor` roda `gh run list` para ele à parte (`queueBases`, com o workflow do repo se o repo está na config), sem mostrar nem notificar como branch. "Ocupado" = `BranchStatus.isActive` (algo na fila, rodando ou esperando aprovação).
 - `ChecksSummary`: para cada job (workflow + nome) vale a entrada mais nova; com o workflow do repo na config, só os jobs dele contam (status externos, como AWS CodeBuild, ficam de fora). Algo ativo → rodando; senão algo falhou → quebrou; senão tudo cancelado → cancelado; senão passou (pulados não seguram). Sem checks → "esperando os checks".
-- Ao entrar na fila, um resultado que já existe conta como anunciado. Depois, `"<head sha>:<passed|failed>"` diferente do último anunciado vira notificação (`Notice(queued:)`, sempre com som) e marca `unseen`. Um push novo (sha novo) é anunciado de novo; passou depois de quebrou → "voltou a passar".
-- `unseen` em algum PR → bolinha azul no ícone da barra e na linha do PR. Abrir o menu (`menuWillOpen`) marca tudo como visto.
+- `baseBusy`: o branch de destino estava ocupado na última olhada (nil = ainda não sabe; branch que não respondeu mantém o último valor; PR redirecionado para outro base volta a nil).
+- Ao entrar na fila, um resultado do CI do PR que já existe conta como anunciado (`announced = "<head sha>:<passed|failed>"`), e nada é notificado.
+- `update(with:baseStatus:workflow:)`, em ordem:
+  1. Branch de destino ocupado (ou desconhecido) → nada; o CI do PR terminar aí não avisa.
+  2. Estava ocupado e agora está livre → `Notice(freed:run:)`: "✅ loja-api · master passou" / "❌ … quebrou" / "… liberou" (cancelado), com o subtítulo "#821 pronto para mergear", "#821: CI do PR ainda rodando" ou "#821: CI do PR quebrou" (ou "cancelado"). Marca o resultado atual do CI do PR como anunciado. O `Monitor` deixa de postar a notificação do branch (`CompletionTracker`) do mesmo repo e branch nessa consulta, porque essa já diz como o deploy terminou.
+  3. Livre antes e agora, e o CI do PR chegou a um resultado novo → `Notice(queued:fixed:)`: "✅ loja-api #821 pronto para mergear" (subtítulo "master livre · CI em 6 min", ou "CI voltou a passar em…") ou "❌ loja-api #821: CI do PR quebrou".
+- Todas as notificações da fila têm som e independem de "Avisar também quando passar".
+- `signal` (só com o branch de destino livre): CI do PR passou → `.ready` (bolinha azul); quebrou ou cancelado → `.checksFailed` (vermelha); rodando, na fila ou sem checks → `.checksRunning` (laranja). `Signal.strongest(in:)` escolhe a da barra: `.ready` > `.checksFailed` > `.checksRunning`. A bolinha aparece no ícone da barra e na linha do PR; abrir o menu não apaga.
+- Texto da linha (`Format.summary(of: QueuedPR)`): `esperando o master · CI passou há 9 min`, `pronto para mergear · master livre`, `master livre · CI rodando há 5 min`; sem base conhecido, só o CI.
 - PR mergeado ou fechado sai da fila na consulta seguinte.
 - Para adicionar: `gh search prs --author=@me` (8) e `--review-requested=@me` (12, inclui pedidos ao time), ao abrir o app e ao abrir o menu se tiverem mais de 60 s; ou um link colado, achado por `PRRef.find` em qualquer texto.
 
@@ -64,8 +74,10 @@ Também atualiza 5 s depois de o Mac acordar e ao abrir o menu, se os dados tive
 
 ```
 [Fila de PRs]                                ← só com PRs na fila
-  ✓• loja-api #815  passou · há 2 min         ← bolinha azul enquanto não visto; clique abre o PR
-          fix: corrige o cálculo do frete… · bia
+  ✓• loja-api #821  pronto para mergear · master livre  ← bolinha com a cor do signal; clique abre o PR
+          feat: cupom de primeira compra · voce
+  ✓ loja-api #819  esperando o homolog · CI passou há 9 min
+  ⟳• loja-web #431  master livre · CI rodando há 5 min
 [loja-api]                                   ← NSMenuItem.sectionHeader (nome curto do repo)
   ✓ master  passou em 7 min · há 11 min      ← título atribuído (branch em semibold) + imagem do estado
           feat(checkout): parcelamento…      ← subtitle (macOS 14.4+): commit, com o workflow se não há filtro
