@@ -15,7 +15,7 @@ enum LoginItem {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
-            NSLog("Esteira: failed to \(enabled ? "register" : "unregister") login item: \(error)")
+            NSLog("Pipelight: failed to \(enabled ? "register" : "unregister") login item: \(error)")
         }
     }
 

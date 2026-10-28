@@ -1,6 +1,6 @@
 import Foundation
 
-/// The watched repos, in `~/Library/Application Support/Esteira/config.json`. The menu edits it, and
+/// The watched repos, in `~/Library/Application Support/Pipelight/config.json`. The menu edits it, and
 /// people can too: the app rereads it whenever the file changes.
 public struct Config: Codable, Equatable, Sendable {
     public struct Repo: Codable, Equatable, Sendable {

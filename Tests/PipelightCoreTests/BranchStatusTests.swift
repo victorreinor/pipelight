@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import EsteiraCore
+@testable import PipelightCore
 
 @Suite struct DecodingGhOutput {
     @Test func decodesRunListJSON() throws {

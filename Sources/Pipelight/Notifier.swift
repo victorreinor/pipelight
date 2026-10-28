@@ -1,5 +1,5 @@
 import AppKit
-import EsteiraCore
+import PipelightCore
 import UserNotifications
 
 /// Posts "passou / quebrou / voltou a passar" to Notification Center; clicking one opens the run.
@@ -8,8 +8,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     private var center: UNUserNotificationCenter { .current() }
 
-    /// System Settings › Notifications › Esteira.
-    static let settingsURL = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=dev.victorreinor.esteira")!
+    /// System Settings › Notifications › Pipelight.
+    static let settingsURL = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=dev.victorreinor.pipelight")!
 
     /// The last answer from macOS; nil until asked (or without a bundle).
     private(set) var status: UNAuthorizationStatus?
@@ -30,9 +30,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         center.delegate = self
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error {
-                NSLog("Esteira: notification authorization failed: \(error)")
+                NSLog("Pipelight: notification authorization failed: \(error)")
             } else if !granted {
-                NSLog("Esteira: notifications are turned off in System Settings")
+                NSLog("Pipelight: notifications are turned off in System Settings")
             }
             self.loadStatus(then: onStatus)
         }
@@ -63,7 +63,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
         center.add(UNNotificationRequest(identifier: notice.identifier, content: content, trigger: nil)) { error in
             if let error {
-                NSLog("Esteira: failed to post notification: \(error)")
+                NSLog("Pipelight: failed to post notification: \(error)")
             }
         }
     }

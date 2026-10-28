@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import EsteiraCore
+@testable import PipelightCore
 
 @Suite struct ConfigFile {
     @Test func decodesAndFlattensTargets() throws {

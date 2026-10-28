@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Builds build.noindex/Esteira.app: release, universal (Apple Silicon + Intel), ad-hoc signed.
+# Builds build.noindex/Pipelight.app: release, universal (Apple Silicon + Intel), ad-hoc signed.
 # No Xcode needed, just the Command Line Tools (xcode-select --install).
-# The ".noindex" suffix keeps Spotlight from listing this copy next to /Applications/Esteira.app.
+# The ".noindex" suffix keeps Spotlight from listing this copy next to /Applications/Pipelight.app.
 # Version: $VERSION (the release workflow passes the new one), else the latest vX.Y.Z tag.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP="build.noindex/Esteira.app"
+APP="build.noindex/Pipelight.app"
 VERSION="${VERSION:-$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null | sed 's/^v//' || true)}"
 ARCHS=(--arch arm64 --arch x86_64)
 
-swift build -c release "${ARCHS[@]}" --product Esteira
+swift build -c release "${ARCHS[@]}" --product Pipelight
 BIN_DIR="$(swift build -c release "${ARCHS[@]}" --show-bin-path)"
 
 if [ ! -f Resources/AppIcon.icns ]; then
@@ -21,7 +21,7 @@ fi
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN_DIR/Esteira" "$APP/Contents/MacOS/Esteira"
+cp "$BIN_DIR/Pipelight" "$APP/Contents/MacOS/Pipelight"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 if [ -n "$VERSION" ]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"

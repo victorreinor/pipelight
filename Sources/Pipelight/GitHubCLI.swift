@@ -1,5 +1,5 @@
 import Foundation
-import EsteiraCore
+import PipelightCore
 
 /// Talks to GitHub through the gh CLI, so the app reuses the login people already have (keychain
 /// included) and never stores a token. Opened from Finder or at login, the app gets a bare PATH, so gh

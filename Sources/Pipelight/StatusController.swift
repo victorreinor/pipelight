@@ -1,5 +1,5 @@
 import AppKit
-import EsteiraCore
+import PipelightCore
 
 /// The menu bar item: the icon sums up every branch (spinning while something runs) and the menu
 /// lists each one. The menu is rebuilt right before it opens and on every update while it's open.
@@ -20,7 +20,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false
         item.menu = menu
-        item.button?.setAccessibilityLabel("Esteira")
+        item.button?.setAccessibilityLabel("Pipelight")
         update()
     }
 
@@ -61,11 +61,11 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     private func tooltip(_ overall: Overall) -> String {
         switch overall {
-        case .empty: return "Esteira: nenhum repositório"
-        case .unknown: return "Esteira: carregando…"
-        case .passed: return "Esteira: tudo verde"
-        case .failed: return "Esteira: algo quebrou"
-        case .running(let failing): return failing ? "Esteira: rodando, e algo está quebrado" : "Esteira: rodando"
+        case .empty: return "Pipelight: nenhum repositório"
+        case .unknown: return "Pipelight: carregando…"
+        case .passed: return "Pipelight: tudo verde"
+        case .failed: return "Pipelight: algo quebrou"
+        case .running(let failing): return failing ? "Pipelight: rodando, e algo está quebrado" : "Pipelight: rodando"
         }
     }
 

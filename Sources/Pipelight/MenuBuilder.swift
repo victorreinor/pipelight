@@ -1,5 +1,5 @@
 import AppKit
-import EsteiraCore
+import PipelightCore
 
 /// Everything the menu shows, so the snapshot can build it from made-up data.
 struct MenuModel {
@@ -53,7 +53,7 @@ enum MenuBuilder {
         if model.notificationsOff {
             let enable = action("Ativar notificações…", #selector(StatusController.openNotificationSettings), target: target)
             enable.image = StatusIcons.symbol("bell.slash.fill", StatusIcons.amber, size: 13)
-            enable.toolTip = "As notificações do Esteira estão desligadas nos Ajustes do Sistema."
+            enable.toolTip = "As notificações do Pipelight estão desligadas nos Ajustes do Sistema."
             items.append(enable)
         }
         let notify = action("Avisar também quando passar", #selector(StatusController.toggleNotifyPassed), target: target)
@@ -68,7 +68,7 @@ enum MenuBuilder {
         for line in footer(model) {
             items.append(disabled(line))
         }
-        items.append(action("Sair do Esteira", #selector(NSApplication.terminate(_:)), key: "q", target: nil))
+        items.append(action("Sair do Pipelight", #selector(NSApplication.terminate(_:)), key: "q", target: nil))
         return items
     }
 
@@ -121,7 +121,7 @@ enum MenuBuilder {
         return item
     }
 
-    /// The menu as plain text, for ESTEIRA_PRINT_MENU.
+    /// The menu as plain text, for PIPELIGHT_PRINT_MENU.
     static func text(_ items: [NSMenuItem]) -> String {
         items.map { item in
             if item.isSeparatorItem { return "  ────" }

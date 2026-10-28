@@ -4,9 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-swift build --product Esteira
+swift build --product Pipelight
 mkdir -p docs/images
-ESTEIRA_SNAPSHOT_DIR="$PWD/docs/images" "$(swift build --show-bin-path)/Esteira"
+PIPELIGHT_SNAPSHOT_DIR="$PWD/docs/images" "$(swift build --show-bin-path)/Pipelight"
 
 swift scripts/make-icon.swift build.noindex/AppIcon.iconset
 cp build.noindex/AppIcon.iconset/icon_128x128@2x.png docs/images/icon.png

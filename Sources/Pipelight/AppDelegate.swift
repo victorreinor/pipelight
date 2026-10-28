@@ -6,12 +6,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusController: StatusController!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if #available(macOS 14.4, *), let directory = ProcessInfo.processInfo.environment["ESTEIRA_SNAPSHOT_DIR"] {
+        if #available(macOS 14.4, *), let directory = ProcessInfo.processInfo.environment["PIPELIGHT_SNAPSHOT_DIR"] {
             Snapshot.render(into: directory)
             NSApp.terminate(nil)
             return
         }
-        if ProcessInfo.processInfo.environment["ESTEIRA_PRINT_MENU"] != nil {
+        if ProcessInfo.processInfo.environment["PIPELIGHT_PRINT_MENU"] != nil {
             printMenuOnce()
             return
         }
@@ -33,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         monitor.start()
     }
 
-    /// Development aid: `ESTEIRA_PRINT_MENU=1 Esteira` asks gh once, prints the menu as text and quits,
+    /// Development aid: `PIPELIGHT_PRINT_MENU=1 Pipelight` asks gh once, prints the menu as text and quits,
     /// so the real data can be checked without seeing the menu bar. No status item, no notifications.
     private func printMenuOnce() {
         monitor = Monitor()

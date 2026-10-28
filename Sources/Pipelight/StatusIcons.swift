@@ -1,5 +1,5 @@
 import AppKit
-import EsteiraCore
+import PipelightCore
 
 /// The colored SF Symbols for the menu bar and the menu rows. Status colors carry the meaning, so these
 /// aren't template images; only "no data yet" uses a template that follows the menu bar's color.
@@ -23,7 +23,7 @@ enum StatusIcons {
             let image = symbol("arrow.triangle.2.circlepath.circle.fill", failing ? red : amber, size: size)
             return rotated(image, degrees: CGFloat(frame) * 360 / CGFloat(spinFrames))
         case .unknown, .empty:
-            let image = NSImage(systemSymbolName: "circle.dashed", accessibilityDescription: "Esteira")!
+            let image = NSImage(systemSymbolName: "circle.dashed", accessibilityDescription: "Pipelight")!
                 .withSymbolConfiguration(.init(pointSize: size, weight: .regular))!
             image.isTemplate = true
             return image

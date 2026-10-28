@@ -1,5 +1,5 @@
 import Foundation
-@testable import EsteiraCore
+@testable import PipelightCore
 
 let now = Date(timeIntervalSince1970: 1_800_000_000)
 

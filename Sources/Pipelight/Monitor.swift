@@ -1,5 +1,5 @@
 import AppKit
-import EsteiraCore
+import PipelightCore
 
 struct BranchState {
     var status: BranchStatus?
@@ -12,7 +12,7 @@ struct BranchState {
 @MainActor
 final class Monitor {
     nonisolated static let defaultConfigURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("Esteira", isDirectory: true)
+        .appendingPathComponent("Pipelight", isDirectory: true)
         .appendingPathComponent("config.json")
 
     let configURL: URL
@@ -144,7 +144,7 @@ final class Monitor {
             configError = nil
         } catch {
             configError = "config.json inválido; o formato está no README"
-            NSLog("Esteira: failed to read \(configURL.path): \(error)")
+            NSLog("Pipelight: failed to read \(configURL.path): \(error)")
         }
     }
 
@@ -153,7 +153,7 @@ final class Monitor {
             try FileManager.default.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try new.encoded().write(to: configURL, options: .atomic)
         } catch {
-            NSLog("Esteira: failed to write \(configURL.path): \(error)")
+            NSLog("Pipelight: failed to write \(configURL.path): \(error)")
         }
         configDate = modificationDate()
         configError = nil

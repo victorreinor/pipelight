@@ -1,11 +1,11 @@
 # Arquitetura
 
 ```
-                ┌──────────────────────────────── Esteira (app, AppKit) ─────────────────────────────────┐
+                ┌──────────────────────────────── Pipelight (app, AppKit) ─────────────────────────────────┐
  timer 15–30 s ─▶│ Monitor ── para cada Target ──▶ GitHubCLI.run(["run","list",…]) ──▶ gh ──▶ GitHub API │
  acordar Mac   ─▶│   │ ▲                                        │ [WorkflowRun]                               │
  abrir o menu  ─▶│   │ └── config.json (relido se mudou)        ▼                                             │
-                │   │                             EsteiraCore: BranchStatus · Overall · CompletionTracker    │
+                │   │                             PipelightCore: BranchStatus · Overall · CompletionTracker    │
                 │   │ onChange                                  │ Completion → Notice                         │
                 │   ▼                                           ▼                                            │
                 │ StatusController ── MenuBuilder ──▶ NSMenu   Notifier ──▶ Central de Notificações         │
@@ -13,7 +13,7 @@
                 └────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-`EsteiraCore` não importa AppKit: modelos, regras de status, de notificação, config e textos são puros e testados. `Esteira` é a camada AppKit, e só ela roda processos e mexe em UI.
+`PipelightCore` não importa AppKit: modelos, regras de status, de notificação, config e textos são puros e testados. `Pipelight` é a camada AppKit, e só ela roda processos e mexe em UI.
 
 ## Ciclo de uma consulta (`Monitor.refresh`)
 
@@ -65,19 +65,19 @@ Também atualiza 5 s depois de o Mac acordar e ao abrir o menu, se os dados tive
   ✓ Avisar também quando passar · ✓ Abrir ao iniciar o Mac
   ────
   ⚠︎ erro (se houver) · Atualizado às 16:42:10
-  Sair do Esteira ⌘Q
+  Sair do Pipelight ⌘Q
 ```
 
 O menu é reconstruído em `menuNeedsUpdate` e a cada mudança enquanto está aberto. Clicar num branch abre `headline.url` ou, sem execuções, a aba Actions filtrada pelo branch.
 
 ## Persistência
 
-- `~/Library/Application Support/Esteira/config.json`: a lista de repos (formato no README). Escrito pelo menu (`Monitor.update`) com `.atomic`, ou à mão.
-- `UserDefaults` (`dev.victorreinor.esteira`): `notifyPassed` (padrão `true`) e `loginItemConfigured`.
+- `~/Library/Application Support/Pipelight/config.json`: a lista de repos (formato no README). Escrito pelo menu (`Monitor.update`) com `.atomic`, ou à mão.
+- `UserDefaults` (`dev.victorreinor.pipelight`): `notifyPassed` (padrão `true`) e `loginItemConfigured`.
 - Nenhum token: o `gh` guarda o dele no Chaveiro.
 
 ## Distribuição
 
 - `scripts/build-app.sh` monta o bundle à mão (sem Xcode): binário universal, `Info.plist`, ícone (`scripts/make-icon.swift` desenha o ícone e o `iconutil` gera o `.icns`) e `codesign --sign -`.
-- `scripts/release.sh` (local, sem CI): `scripts/next-version.sh` sobe a última tag (patch, ou `[minor]`/`[major]` no título de um commit), `scripts/test.sh`, `build-app.sh` com `VERSION`, e publica `Esteira.zip` (feito com `ditto`, que preserva a assinatura) numa GitHub Release `v<versão>`.
-- `install.sh` baixa `releases/latest/download/Esteira.zip`, instala em `/Applications` (ou `~/Applications`), remove a quarentena, abre o app e avisa se falta instalar ou logar o `gh`.
+- `scripts/release.sh` (local, sem CI): `scripts/next-version.sh` sobe a última tag (patch, ou `[minor]`/`[major]` no título de um commit), `scripts/test.sh`, `build-app.sh` com `VERSION`, e publica `Pipelight.zip` (feito com `ditto`, que preserva a assinatura) numa GitHub Release `v<versão>`.
+- `install.sh` baixa `releases/latest/download/Pipelight.zip`, instala em `/Applications` (ou `~/Applications`), remove a quarentena, abre o app e avisa se falta instalar ou logar o `gh`.

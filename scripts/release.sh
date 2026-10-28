@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publishes the next version as a GitHub release with build.noindex/Esteira.zip. The version comes
+# Publishes the next version as a GitHub release with build.noindex/Pipelight.zip. The version comes
 # from scripts/next-version.sh: patch by default, "[minor]" or "[major]" in the subject of a commit
 # since the last tag, or the part given here. The notes default to those commits' subjects.
 # install.sh always fetches the latest release.
@@ -21,10 +21,10 @@ notes="${2:-$(git log ${previous:+"$previous..HEAD"} --no-merges --format='- %s'
 
 ./scripts/test.sh
 VERSION="$version" ./scripts/build-app.sh
-rm -f build.noindex/Esteira.zip
-ditto -c -k --keepParent build.noindex/Esteira.app build.noindex/Esteira.zip
+rm -f build.noindex/Pipelight.zip
+ditto -c -k --keepParent build.noindex/Pipelight.app build.noindex/Pipelight.zip
 
 # Annotated, so it also works when tag.gpgsign is on (signed tags need a message).
-git tag -a "$tag" -m "Esteira $version"
+git tag -a "$tag" -m "Pipelight $version"
 git push origin "$tag"
-gh release create "$tag" build.noindex/Esteira.zip --title "Esteira $version" --notes "$notes"
+gh release create "$tag" build.noindex/Pipelight.zip --title "Pipelight $version" --notes "$notes"

@@ -1,7 +1,7 @@
 import AppKit
-import EsteiraCore
+import PipelightCore
 
-/// Development aid behind scripts/screenshots.sh: `ESTEIRA_SNAPSHOT_DIR=dir Esteira` renders the README
+/// Development aid behind scripts/screenshots.sh: `PIPELIGHT_SNAPSHOT_DIR=dir Pipelight` renders the README
 /// images offscreen and quits (no Screen Recording permission needed). A real NSMenu can't be drawn
 /// offscreen, so the dropdown is laid out here, from the items MenuBuilder makes for made-up repos.
 @available(macOS 14.4, *)
@@ -277,7 +277,7 @@ enum Snapshot {
         do {
             try bitmap.representation(using: type, properties: properties)?.write(to: url)
         } catch {
-            NSLog("Esteira: failed to write \(url.path): \(error)")
+            NSLog("Pipelight: failed to write \(url.path): \(error)")
         }
     }
 }
