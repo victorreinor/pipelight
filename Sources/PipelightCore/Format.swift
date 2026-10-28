@@ -38,6 +38,20 @@ public enum Format {
         return cut.trimmingCharacters(in: .whitespaces.union(.punctuationCharacters)) + "…"
     }
 
+    /// What a queued PR's checks are doing: "rodando há 4 min", "passou · há 2 min".
+    public static func summary(of pr: QueuedPR, now: Date) -> String {
+        switch pr.checks {
+        case nil: return "esperando os checks"
+        case .queued: return "na fila"
+        case .running: return "rodando há \(duration(now.timeIntervalSince(pr.startedAt ?? now)))"
+        case .waiting: return "aguardando aprovação"
+        case .passed: return pr.finishedAt.map { "passou · \(ago($0, now: now))" } ?? "passou"
+        case .failed: return pr.finishedAt.map { "quebrou · \(ago($0, now: now))" } ?? "quebrou"
+        case .cancelled: return "cancelado"
+        case .neutral: return "sem checks"
+        }
+    }
+
     /// What a branch is doing, for the first line of its menu item: "passou em 6 min · há 12 min".
     public static func summary(of run: WorkflowRun, now: Date) -> String {
         let took = duration(run.duration(now: now))

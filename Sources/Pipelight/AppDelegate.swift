@@ -33,16 +33,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         monitor.start()
     }
 
-    /// Development aid: `PIPELIGHT_PRINT_MENU=1 Pipelight` asks gh once, prints the menu as text and quits,
-    /// so the real data can be checked without seeing the menu bar. No status item, no notifications.
+    /// Development aid: `PIPELIGHT_PRINT_MENU=1 Pipelight` asks gh once, prints the menu as text (submenus
+    /// included) and quits, so the real data can be checked without seeing the menu bar. No status item,
+    /// no notifications, nothing saved. `PIPELIGHT_DATA_DIR=dir` reads config.json and queue.json from
+    /// `dir` instead of Application Support.
     private func printMenuOnce() {
-        monitor = Monitor()
+        let directory = ProcessInfo.processInfo.environment["PIPELIGHT_DATA_DIR"].map { URL(fileURLWithPath: $0) }
+        monitor = Monitor(directory: directory ?? Monitor.defaultDirectory)
+        monitor.savesQueue = false
         monitor.onChange = { [unowned self] in
-            guard !monitor.isRefreshing else { return }
+            guard !monitor.isRefreshing, !monitor.isLoadingCandidates else { return }
             let model = MenuModel(
                 config: monitor.config, states: monitor.states, lastUpdate: monitor.lastUpdate, isRefreshing: false,
                 configError: monitor.configError, notifyPassed: true, opensAtLogin: LoginItem.isEnabled,
-                notificationsOff: Notifier.shared.isOff)
+                notificationsOff: Notifier.shared.isOff, queue: monitor.queue, queueErrors: monitor.queueErrors,
+                candidates: monitor.candidates)
             print("Overall: \(monitor.overall)")
             print("Notifications: \(Notifier.shared.statusDescription)")
             print(MenuBuilder.text(MenuBuilder.items(for: model, target: nil)))
@@ -54,5 +59,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Never linger as a second copy of the app if gh hangs.
         DispatchQueue.main.asyncAfter(deadline: .now() + 60) { exit(1) }
         monitor.refresh()
+        monitor.refreshCandidates()
     }
 }

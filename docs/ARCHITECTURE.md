@@ -51,13 +51,28 @@ Também atualiza 5 s depois de o Mac acordar e ao abrir o menu, se os dados tive
 - `Notice`: `failed` → "❌ repo · branch quebrou" (com som); `passed` com a anterior do mesmo workflow `failed` → "✅ … voltou a passar"; `passed` → "✅ … passou" (sem som, desligável). Cancelado e pulado: nada.
 - O identificador da notificação é `id-attempt`, então a mesma execução nunca aparece duas vezes. Clicar abre `url`.
 
+## Fila de PRs (`QueuedPR` + `ChecksSummary`)
+
+- Fica em `~/Library/Application Support/Pipelight/queue.json` e é consultada em toda atualização, junto com os branches: `gh pr view N --repo R --json number,title,url,author,state,isDraft,headRefOid,statusCheckRollup`.
+- `ChecksSummary`: para cada job (workflow + nome) vale a entrada mais nova; com o workflow do repo na config, só os jobs dele contam (status externos, como AWS CodeBuild, ficam de fora). Algo ativo → rodando; senão algo falhou → quebrou; senão tudo cancelado → cancelado; senão passou (pulados não seguram). Sem checks → "esperando os checks".
+- Ao entrar na fila, um resultado que já existe conta como anunciado. Depois, `"<head sha>:<passed|failed>"` diferente do último anunciado vira notificação (`Notice(queued:)`, sempre com som) e marca `unseen`. Um push novo (sha novo) é anunciado de novo; passou depois de quebrou → "voltou a passar".
+- `unseen` em algum PR → bolinha azul no ícone da barra e na linha do PR. Abrir o menu (`menuWillOpen`) marca tudo como visto.
+- PR mergeado ou fechado sai da fila na consulta seguinte.
+- Para adicionar: `gh search prs --author=@me` (8) e `--review-requested=@me` (12, inclui pedidos ao time), ao abrir o app e ao abrir o menu se tiverem mais de 60 s; ou um link colado, achado por `PRRef.find` em qualquer texto.
+
 ## O menu
 
 ```
+[Fila de PRs]                                ← só com PRs na fila
+  ✓• loja-api #815  passou · há 2 min         ← bolinha azul enquanto não visto; clique abre o PR
+          fix: corrige o cálculo do frete… · bia
 [loja-api]                                   ← NSMenuItem.sectionHeader (nome curto do repo)
   ✓ master  passou em 7 min · há 11 min      ← título atribuído (branch em semibold) + imagem do estado
           feat(checkout): parcelamento…      ← subtitle (macOS 14.4+): commit, com o workflow se não há filtro
   ⟳ homolog  rodando há 3 min · antes quebrou
+  ────
+  Adicionar PR à fila ›  (Colar link do PR… · [Seus PRs abertos] · [Pedindo revisão (você ou seu time)])
+  Tirar PR da fila ›     (cada PR · Tirar os que já passaram · Esvaziar a fila)
   ────
   Atualizar agora ⌘R · Adicionar repositório… ⌘N · Remover repositório › · Editar config.json…
   ────
@@ -73,6 +88,7 @@ O menu é reconstruído em `menuNeedsUpdate` e a cada mudança enquanto está ab
 ## Persistência
 
 - `~/Library/Application Support/Pipelight/config.json`: a lista de repos (formato no README). Escrito pelo menu (`Monitor.update`) com `.atomic`, ou à mão.
+- `~/Library/Application Support/Pipelight/queue.json`: a fila de PRs (`[QueuedPR]`), escrita pelo app a cada mudança.
 - `UserDefaults` (`dev.victorreinor.pipelight`): `notifyPassed` (padrão `true`) e `loginItemConfigured`.
 - Nenhum token: o `gh` guarda o dele no Chaveiro.
 

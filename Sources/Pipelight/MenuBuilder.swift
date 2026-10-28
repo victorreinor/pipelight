@@ -12,14 +12,26 @@ struct MenuModel {
     var opensAtLogin: Bool
     /// The app may not notify (people said no to macOS's question, or turned it off later).
     var notificationsOff = false
+    var queue: [QueuedPR] = []
+    var queueErrors: [String: String] = [:]
+    var candidates = PRCandidates()
     var now = Date()
 }
 
-/// Builds the dropdown: one section per repo with a row per branch, then the actions.
+/// Builds the dropdown: the PR queue, one section per repo with a row per branch, then the actions.
 enum MenuBuilder {
+    /// Marks the "Adicionar PR à fila" item, whose submenu is refilled each time it opens.
+    static let addPRTag = 7001
+
     static func items(for model: MenuModel, target: AnyObject?) -> [NSMenuItem] {
         var items: [NSMenuItem] = []
 
+        if !model.queue.isEmpty {
+            items.append(.sectionHeader(title: "Fila de PRs"))
+            for pr in model.queue {
+                items.append(queueRow(pr, error: model.queueErrors[pr.ref.id], now: model.now, target: target))
+            }
+        }
         if model.config.repos.isEmpty {
             items.append(disabled("Nenhum repositório ainda"))
             items.append(disabled("Use \u{201C}Adicionar repositório…\u{201D} abaixo"))
@@ -31,6 +43,20 @@ enum MenuBuilder {
                 items.append(row(watched, state: model.states[watched.id], watchingAll: repo.workflow == nil,
                                  now: model.now, target: target))
             }
+        }
+        items.append(.separator())
+
+        let addPR = NSMenuItem(title: "Adicionar PR à fila", action: nil, keyEquivalent: "")
+        addPR.tag = addPRTag
+        addPR.submenu = NSMenu()
+        addPR.submenu?.autoenablesItems = false
+        addPR.submenu?.items = addPRItems(for: model, target: target)
+        items.append(addPR)
+        if !model.queue.isEmpty {
+            let remove = NSMenuItem(title: "Tirar PR da fila", action: nil, keyEquivalent: "")
+            remove.submenu = NSMenu()
+            remove.submenu?.items = removePRItems(for: model, target: target)
+            items.append(remove)
         }
         items.append(.separator())
 
@@ -99,37 +125,124 @@ enum MenuBuilder {
             detail = ""
         }
 
-        let title = NSMutableAttributedString(
-            string: watched.branch, attributes: [.font: NSFont.menuFont(ofSize: 0).withWeight(.semibold)])
-        title.append(NSAttributedString(string: "  \(summary)", attributes: [.font: NSFont.menuFont(ofSize: 0)]))
+        let title = boldLead(watched.branch, rest: summary)
 
         let item = action("\(watched.branch)  \(summary)", #selector(StatusController.openLink(_:)), target: target)
         item.attributedTitle = title
         item.image = StatusIcons.row(run?.state, error: state?.error != nil)
         item.representedObject = run?.url ?? watched.actionsURL
         item.toolTip = [run?.workflowName, run?.title, state?.error].compactMap { $0 }.joined(separator: "\n")
-        if !detail.isEmpty {
-            if #available(macOS 14.4, *) {
-                item.subtitle = detail
-            } else {
-                title.append(NSAttributedString(string: "\n\(detail)", attributes: [
-                    .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.secondaryLabelColor,
-                ]))
-                item.attributedTitle = title
-            }
-        }
+        setDetail(detail, of: item, title: title)
         return item
     }
 
-    /// The menu as plain text, for PIPELIGHT_PRINT_MENU.
-    static func text(_ items: [NSMenuItem]) -> String {
+    // MARK: PR queue
+
+    /// "orodruin-3 #5586  passou · há 2 min", with the PR title and author below. Clicking opens the PR.
+    private static func queueRow(_ pr: QueuedPR, error: String?, now: Date, target: AnyObject?) -> NSMenuItem {
+        let summary = Format.summary(of: pr, now: now)
+        let title = boldLead(pr.ref.shortName, rest: summary)
+        let item = action("\(pr.ref.shortName)  \(summary)", #selector(StatusController.openLink(_:)), target: target)
+        item.attributedTitle = title
+        item.image = StatusIcons.row(pr.checks, error: error != nil && pr.checks == nil, badge: pr.unseen)
+        item.representedObject = pr.url
+        item.toolTip = [pr.title, error].compactMap { $0 }.joined(separator: "\n")
+        setDetail(error ?? [Format.truncate(pr.title, to: 56), pr.author].filter { !$0.isEmpty }.joined(separator: " · "),
+                  of: item, title: title)
+        return item
+    }
+
+    /// The submenu of "Adicionar PR à fila": paste a link, or pick one of your PRs or one asking for
+    /// your review. A PR already in the queue shows a check; picking it again takes it out.
+    static func addPRItems(for model: MenuModel, target: AnyObject?) -> [NSMenuItem] {
+        var items = [action("Colar link do PR…", #selector(StatusController.pastePRLink), target: target)]
+        let candidates = model.candidates
+        guard candidates.loadedAt != nil else {
+            items.append(.separator())
+            items.append(disabled(candidates.error.map { "⚠︎ \($0)" } ?? "Carregando PRs…"))
+            return items
+        }
+        let queued = Set(model.queue.map(\.ref.id))
+        for (header, list, showAuthor) in [
+            ("Seus PRs abertos", candidates.mine, false),
+            ("Pedindo revisão (você ou seu time)", candidates.reviewRequested, true),
+        ] {
+            items.append(.sectionHeader(title: header))
+            if list.isEmpty {
+                items.append(disabled("Nenhum"))
+            }
+            for candidate in list {
+                // Titles often share a long prefix ("Projeto - Implementação <> …"), so the title gets
+                // the wider second line and the short facts go up front.
+                let facts = [Format.ago(candidate.updatedAt, now: model.now), showAuthor ? candidate.author : nil,
+                             candidate.isDraft ? "rascunho" : nil].compactMap { $0 }.joined(separator: " · ")
+                let title = boldLead(candidate.ref.shortName, rest: facts)
+                let item = action("\(candidate.ref.shortName)  \(facts)", #selector(StatusController.toggleQueuedPR(_:)),
+                                  target: target)
+                item.attributedTitle = title
+                item.representedObject = "\(candidate.ref.repo)#\(candidate.ref.number)"
+                item.state = queued.contains(candidate.ref.id) ? .on : .off
+                item.toolTip = candidate.title
+                setDetail(Format.truncate(candidate.title, to: 60), of: item, title: title)
+                items.append(item)
+            }
+        }
+        if let error = candidates.error {
+            items.append(disabled("⚠︎ \(error)"))
+        }
+        return items
+    }
+
+    private static func removePRItems(for model: MenuModel, target: AnyObject?) -> [NSMenuItem] {
+        var items = model.queue.map { pr in
+            let item = action("\(pr.ref.shortName)  \(Format.truncate(pr.title, to: 36))",
+                              #selector(StatusController.removeQueuedPR(_:)), target: target)
+            item.representedObject = pr.ref.id
+            return item
+        }
+        items.append(.separator())
+        if model.queue.contains(where: { $0.checks == .passed }) {
+            items.append(action("Tirar os que já passaram", #selector(StatusController.removePassedPRs), target: target))
+        }
+        items.append(action("Esvaziar a fila", #selector(StatusController.clearQueue), target: target))
+        return items
+    }
+
+    // MARK: Pieces
+
+    /// "master  passou…" with the first part in semibold. No colors: the menu's blue highlight
+    /// wouldn't invert them.
+    private static func boldLead(_ lead: String, rest: String) -> NSMutableAttributedString {
+        let title = NSMutableAttributedString(string: lead, attributes: [.font: NSFont.menuFont(ofSize: 0).withWeight(.semibold)])
+        title.append(NSAttributedString(string: "  \(rest)", attributes: [.font: NSFont.menuFont(ofSize: 0)]))
+        return title
+    }
+
+    /// The gray second line: `subtitle` on macOS 14.4+, else a second line of the title.
+    private static func setDetail(_ detail: String, of item: NSMenuItem, title: NSMutableAttributedString) {
+        guard !detail.isEmpty else { return }
+        if #available(macOS 14.4, *) {
+            item.subtitle = detail
+        } else {
+            title.append(NSAttributedString(string: "\n\(detail)", attributes: [
+                .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.secondaryLabelColor,
+            ]))
+            item.attributedTitle = title
+        }
+    }
+
+    /// The menu as plain text, submenus indented, for PIPELIGHT_PRINT_MENU.
+    static func text(_ items: [NSMenuItem], indent: String = "") -> String {
         items.map { item in
-            if item.isSeparatorItem { return "  ────" }
-            if item.isSectionHeader { return "[\(item.title)]" }
+            if item.isSeparatorItem { return indent + "  ────" }
+            if item.isSectionHeader { return indent + "[\(item.title)]" }
             let mark = item.state == .on ? "✓ " : "  "
-            var line = mark + item.title
+            var line = indent + mark + item.title
             if #available(macOS 14.4, *), let subtitle = item.subtitle {
-                line += "\n      \(subtitle)"
+                line += "\n\(indent)      \(subtitle)"
+            }
+            if let submenu = item.submenu {
+                line += " ›\n" + text(submenu.items, indent: indent + "      ")
             }
             return line
         }.joined(separator: "\n")

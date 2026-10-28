@@ -9,6 +9,7 @@ enum Snapshot {
     static func render(into directory: String) {
         let folder = URL(fileURLWithPath: directory)
         save(hero(), as: .jpeg, to: folder.appendingPathComponent("hero.jpg"))
+        save(addPR(), as: .jpeg, to: folder.appendingPathComponent("add-pr.jpg"))
         save(states(), as: .png, to: folder.appendingPathComponent("states.png"))
     }
 
@@ -48,7 +49,46 @@ enum Snapshot {
             states[target.id] = BranchState(status: BranchStatus(runs: runs["\(target.repo)@\(target.branch)"] ?? []))
         }
         return MenuModel(config: config, states: states, lastUpdate: now, isRefreshing: false, configError: nil,
-                         notifyPassed: true, opensAtLogin: true, now: now)
+                         notifyPassed: true, opensAtLogin: true, queue: queue, candidates: candidates, now: now)
+    }
+
+    /// One PR that just passed (not seen yet: the dot) and one still running.
+    private static var queue: [QueuedPR] {
+        func pr(_ number: Int, _ title: String, by author: String, _ checks: [Check]) -> PullRequest {
+            PullRequest(number: number, title: title, url: "https://github.com/acme/loja-api/pull/\(number)", author: author,
+                        headSha: "a\(number)", checks: checks)
+        }
+        let started = now.addingTimeInterval(-9 * 60)
+        var passed = QueuedPR(pr: pr(815, "fix: corrige o cálculo do frete para a região Norte", by: "bia",
+                                     [Check(name: "build", workflowName: "CI", status: "IN_PROGRESS", conclusion: "", startedAt: started)]),
+                              repo: "acme/loja-api", workflow: "CI", now: now)
+        _ = passed.update(with: pr(815, "fix: corrige o cálculo do frete para a região Norte", by: "bia",
+                                   [Check(name: "build", workflowName: "CI", startedAt: started, completedAt: now.addingTimeInterval(-2 * 60))]),
+                          workflow: "CI")
+        let running = QueuedPR(pr: pr(431, "feat: nova vitrine de ofertas na home", by: "caio",
+                                      [Check(name: "build", workflowName: "CI", status: "IN_PROGRESS", conclusion: "",
+                                             startedAt: now.addingTimeInterval(-5 * 60))]),
+                               repo: "acme/loja-web", workflow: "CI", now: now)
+        return [passed, running]
+    }
+
+    private static var candidates: PRCandidates {
+        func candidate(_ repo: String, _ number: Int, _ title: String, by author: String, minutesAgo: Double, draft: Bool = false) -> PRCandidate {
+            PRCandidate(ref: PRRef(repo: repo, number: number), title: title, author: author, isDraft: draft,
+                        updatedAt: now.addingTimeInterval(-minutesAgo * 60))
+        }
+        return PRCandidates(
+            mine: [
+                candidate("acme/loja-api", 812, "feat(checkout): parcelamento sem juros no cartão", by: "voce", minutesAgo: 18),
+                candidate("acme/loja-web", 436, "chore: troca o Moment.js pelo date-fns", by: "voce", minutesAgo: 190),
+                candidate("acme/app-mobile", 77, "feat: login com a Apple", by: "voce", minutesAgo: 2 * 1440, draft: true),
+            ],
+            reviewRequested: [
+                candidate("acme/loja-api", 815, "fix: corrige o cálculo do frete para a região Norte", by: "bia", minutesAgo: 2),
+                candidate("acme/loja-web", 431, "feat: nova vitrine de ofertas na home", by: "caio", minutesAgo: 5),
+                candidate("acme/loja-api", 809, "refactor: separa o serviço de cupons do carrinho", by: "duda", minutesAgo: 1440),
+            ],
+            loadedAt: now)
     }
 
     // MARK: Scenes
@@ -64,7 +104,7 @@ enum Snapshot {
             drawWallpaper(in: bounds)
             let iconX = size.width - 330
             drawMenuBar(width: size.width, height: barHeight, top: size.height, iconX: iconX,
-                        icon: StatusIcons.menuBar(Overall(model.config.targets.map { model.states[$0.id]?.status })),
+                        icon: StatusIcons.menuBar(Overall(model.config.targets.map { model.states[$0.id]?.status }), badge: true),
                         open: true)
             // Like macOS, the menu opens under its icon and slides left when it would leave the screen.
             let menuX = min(iconX - 8, size.width - 14 - menu.size.width)
@@ -72,27 +112,39 @@ enum Snapshot {
         }
     }
 
+    /// The "Adicionar PR à fila" submenu on its own.
+    private static func addPR() -> NSBitmapImageRep {
+        let menu = drawnMenu(MenuBuilder.addPRItems(for: model, target: nil), highlighted: nil)
+        let margin: CGFloat = 36
+        let size = NSSize(width: menu.size.width + margin * 2, height: menu.size.height + margin * 2)
+        return canvas(size) {
+            drawWallpaper(in: NSRect(origin: .zero, size: size))
+            place(menu, at: NSPoint(x: margin, y: margin + 6))
+        }
+    }
+
     /// The four looks of the menu bar icon, each with its caption.
     private static func states() -> NSBitmapImageRep {
-        let cases: [(Overall, String)] = [
-            (.passed, "Tudo verde"),
-            (.running(failing: false), "Rodando"),
-            (.running(failing: true), "Rodando, mas algo\nestá quebrado"),
-            (.failed, "Algo quebrou"),
+        let cases: [(Overall, String, Bool)] = [
+            (.passed, "Tudo verde", false),
+            (.running(failing: false), "Rodando", false),
+            (.running(failing: true), "Rodando, mas algo\nestá quebrado", false),
+            (.failed, "Algo quebrou", false),
+            (.passed, "Um PR da fila\nterminou", true),
         ]
         let cell = NSSize(width: 190, height: 120)
         let size = NSSize(width: cell.width * CGFloat(cases.count) + 40, height: cell.height + 40)
         return canvas(size) {
             NSColor(white: 0.97, alpha: 1).setFill()
             NSBezierPath(roundedRect: NSRect(origin: .zero, size: size), xRadius: 18, yRadius: 18).fill()
-            for (index, (overall, caption)) in cases.enumerated() {
+            for (index, (overall, caption, badge)) in cases.enumerated() {
                 let origin = NSPoint(x: 20 + CGFloat(index) * cell.width, y: 20)
                 let pill = NSRect(x: origin.x + (cell.width - 64) / 2, y: origin.y + 56, width: 64, height: 40)
                 NSColor.white.setFill()
                 withShadow(radius: 8, alpha: 0.12) {
                     NSBezierPath(roundedRect: pill, xRadius: 12, yRadius: 12).fill()
                 }
-                let icon = StatusIcons.menuBar(overall)
+                let icon = StatusIcons.menuBar(overall, badge: badge)
                 let scale: CGFloat = 1.6
                 let iconSize = NSSize(width: icon.size.width * scale, height: icon.size.height * scale)
                 icon.draw(in: NSRect(x: pill.midX - iconSize.width / 2, y: pill.midY - iconSize.height / 2,

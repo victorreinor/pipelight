@@ -90,7 +90,7 @@ public struct RunKey: Hashable, Sendable {
     public var attempt: Int
 }
 
-public enum RunState: Equatable, Sendable {
+public enum RunState: String, Codable, Equatable, Sendable {
     case queued, running, waiting, passed, failed, cancelled, neutral
 
     public var isActive: Bool { self == .queued || self == .running || self == .waiting }

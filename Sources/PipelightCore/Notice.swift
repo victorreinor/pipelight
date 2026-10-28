@@ -11,6 +11,8 @@ public struct Notice: Equatable, Sendable {
     public var url: String
     /// Stable per run and attempt, so the same result never stacks twice.
     public var identifier: String
+    /// About a PR in the queue rather than a watched branch.
+    public var fromQueue = false
 
     /// nil for results that aren't worth a notification (cancelled, skipped).
     public init?(repo: String, branch: String, completion: Completion) {

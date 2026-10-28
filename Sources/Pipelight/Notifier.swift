@@ -49,7 +49,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func post(_ notice: Notice) {
-        if notice.kind == .passed && !UserDefaults.standard.bool(forKey: StatusController.notifyPassedKey) {
+        if notice.kind == .passed && !notice.fromQueue && !UserDefaults.standard.bool(forKey: StatusController.notifyPassedKey) {
             return
         }
         let content = UNMutableNotificationContent()
@@ -57,8 +57,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         content.subtitle = notice.subtitle
         content.body = notice.body
         content.userInfo = ["url": notice.url]
-        // A broken branch makes a sound; a green one just shows up.
-        if notice.kind == .failed {
+        // A broken branch makes a sound; a green one just shows up. A queued PR always sounds: someone
+        // asked to be told.
+        if notice.kind == .failed || notice.fromQueue {
             content.sound = .default
         }
         center.add(UNNotificationRequest(identifier: notice.identifier, content: content, trigger: nil)) { error in

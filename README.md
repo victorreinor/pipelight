@@ -4,7 +4,7 @@
 
 # Pipelight
 
-**O CI/CD dos seus repositórios do GitHub na barra de menus do Mac. Bate o olho e você sabe se está rodando, se passou ou se quebrou, sem ficar abrindo a aba Actions.**
+**O CI/CD dos seus repositórios do GitHub na barra de menus do Mac. Bate o olho e você sabe se está rodando, se passou ou se quebrou, sem ficar abrindo a aba Actions. E põe na fila os PRs que você está esperando: quando o CI deles termina, ele avisa.**
 
 [![Última versão](https://img.shields.io/github/v/release/victorreinor/pipelight?label=vers%C3%A3o&color=34C759)](https://github.com/victorreinor/pipelight/releases/latest)
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111?logo=apple)](#instalar)
@@ -78,6 +78,7 @@ O Pipelight é de código aberto, mas não é "notarizado" pela Apple. Isso exig
 | 🟠 girando | Tem esteira rodando (ou na fila, ou esperando aprovação) |
 | 🔴 girando | Tem esteira rodando **e** algum outro branch está quebrado |
 | 🔴 X | Algum branch quebrou |
+| 🔵 bolinha no canto | Um PR da [fila](#fila-de-prs) terminou. Some quando você abre o menu |
 
 ### Um menu com cada branch
 
@@ -90,6 +91,22 @@ Clique no ícone e veja cada repositório com seus branches: o que aconteceu (`p
 - **✅ passou**, sem som. Dá para desligar em **Avisar também quando passar**.
 
 Clicar na notificação abre a execução no GitHub. Resultados antigos não viram notificação: o Pipelight só avisa o que terminar depois que ele abriu.
+
+### Fila de PRs
+
+Te mandaram um PR pra revisar e o CI ainda está rodando? Põe na fila e esquece: quando o CI dele terminar, vem a notificação (**✅ loja-api #815 passou** ou **❌ … quebrou**, sempre com som) e uma **bolinha azul** aparece no ícone, como mensagem nova.
+
+<img src="docs/images/add-pr.jpg" width="400" align="right" alt="Submenu Adicionar PR à fila: Colar link do PR, os seus PRs abertos e os que pedem revisão para você ou seu time, com check nos que já estão na fila">
+
+Em **Adicionar PR à fila ›**:
+- **Colar link do PR…**: cole (⌘V) o link que te mandaram no chat. Serve link de qualquer aba do PR, e até a mensagem inteira com o link no meio.
+- **Seus PRs abertos** e os que estão **pedindo revisão (sua ou do seu time)**, os mais recentes primeiro. Clique para pôr na fila; clique de novo para tirar.
+
+A fila aparece no topo do menu, com o status do CI de cada PR. Clicar num PR abre ele no GitHub. **Quando o PR é mergeado ou fechado, ele sai da fila sozinho**. Para tirar antes, use **Tirar PR da fila ›**.
+
+Se chegar um push novo no PR, o Pipelight avisa de novo quando o CI desse push terminar (e diz "voltou a passar" se antes tinha quebrado). Quando o repositório do PR está na sua lista com um workflow, só esse workflow conta para dizer se o PR passou.
+
+<br clear="right">
 
 E mais:
 - **Abre junto com o Mac** (dá para desligar no menu).
@@ -133,6 +150,7 @@ Para cada branch, o Pipelight roda `gh run list --repo dono/nome --branch X --wo
 - **A cada 30 s**, e **a cada 15 s enquanto alguma coisa roda**, para você saber logo que terminou. Também atualiza ao abrir o menu e quando o Mac acorda.
 - Com muitos branches, o intervalo aumenta sozinho para ficar abaixo de ~2000 requisições por hora. O GitHub dá 5000 por hora a cada login, e o resto do seu uso do `gh` também conta.
 - O status de um branch é a última execução de cada workflow. Se algum está rodando, ele aparece; senão, aparece o que quebrou; senão, o mais recente.
+- Os PRs da fila são consultados junto, com `gh pr view`; e a lista para adicionar vem de `gh search prs`, atualizada quando você abre o menu.
 - Nada sai do seu Mac além das chamadas que o próprio `gh` faz ao GitHub.
 
 ## Problemas comuns
@@ -144,6 +162,7 @@ Para cada branch, o Pipelight roda `gh run list --repo dono/nome --branch X --wo
 | `repositório não encontrado (ou sem acesso)` | Confira o nome. Se a organização usa SSO, autorize o login do `gh` nela: `gh auth refresh -h github.com` |
 | `workflow não encontrado nesse repositório` | Veja os nomes com `gh workflow list -R dono/nome` |
 | `sem conexão com o GitHub` | O Pipelight tenta de novo sozinho; o último status conhecido continua na tela |
+| `PR não encontrado nesse repositório` | Confira o link; se o repo é de uma organização com SSO, veja a linha do "repositório não encontrado" |
 | **Ativar notificações…** | As notificações estão desligadas: o item abre direto o lugar certo nos Ajustes |
 
 ## Desinstalar
@@ -152,7 +171,7 @@ Para cada branch, o Pipelight roda `gh run list --repo dono/nome --branch X --wo
 pkill -x Pipelight; rm -rf /Applications/Pipelight.app ~/Applications/Pipelight.app
 ```
 
-Para apagar a lista de repositórios também: `rm -rf ~/Library/Application\ Support/Pipelight`. Se o Pipelight continuar listado em **Ajustes do Sistema › Geral › Itens de Início**, é só remover de lá.
+Para apagar a lista de repositórios e a fila de PRs também: `rm -rf ~/Library/Application\ Support/Pipelight`. Se o Pipelight continuar listado em **Ajustes do Sistema › Geral › Itens de Início**, é só remover de lá.
 
 ## Desenvolvimento
 
@@ -165,7 +184,7 @@ PIPELIGHT_PRINT_MENU=1 /Applications/Pipelight.app/Contents/MacOS/Pipelight   # 
 
 Para publicar uma versão nova no GitHub Releases, rode `./scripts/release.sh`. A versão sai sozinha da última tag: por padrão sobe o último número (0.1.0 → 0.1.1), e `[minor]` ou `[major]` no título de um commit sobe mais.
 
-- `Sources/PipelightCore`: modelos, regras de status e de notificação, config e textos (puros e testados)
+- `Sources/PipelightCore`: modelos, regras de status, da fila de PRs e de notificação, config e textos (puros e testados)
 - `Sources/Pipelight`: o app AppKit (barra de menus, menu, gh, notificações, login item)
 
 Vai mexer no código, com ou sem IA? Comece pelo [CLAUDE.md](CLAUDE.md) (mapa do código, decisões e armadilhas) e pelo [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

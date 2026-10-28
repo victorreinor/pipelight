@@ -43,6 +43,17 @@ enum GitHubCLI {
         try WorkflowRun.decodeList(try await run(target.ghArguments))
     }
 
+    static func pullRequest(_ ref: PRRef) async throws -> PullRequest {
+        try PullRequest.decode(try await run(["pr", "view", String(ref.number), "--repo", ref.repo, "--json", PullRequest.ghFields]))
+    }
+
+    /// Open PRs matching a `gh search prs` filter such as "--author=@me", most recently updated first.
+    static func searchPRs(_ filter: String, limit: Int) async throws -> [PRCandidate] {
+        try PRCandidate.decodeList(try await run([
+            "search", "prs", filter, "--state=open", "--sort", "updated", "--limit", String(limit), "--json", PRCandidate.ghFields,
+        ]))
+    }
+
     /// The repo as GitHub spells it ("owner/name") and its default branch. Fails when it doesn't exist
     /// or this login can't see it.
     static func repository(_ repo: String) async throws -> (name: String, defaultBranch: String) {

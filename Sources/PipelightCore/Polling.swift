@@ -18,6 +18,9 @@ public enum Polling {
         if text.contains("could not find any workflows named") {
             return "workflow não encontrado nesse repositório"
         }
+        if text.contains("could not resolve to a pullrequest") {
+            return "PR não encontrado nesse repositório"
+        }
         if text.contains("http 404") || text.contains("could not resolve to a repository") {
             return "repositório não encontrado (ou sem acesso)"
         }

@@ -1,8 +1,9 @@
 import AppKit
 import PipelightCore
 
-/// The menu bar item: the icon sums up every branch (spinning while something runs) and the menu
-/// lists each one. The menu is rebuilt right before it opens and on every update while it's open.
+/// The menu bar item: the icon sums up every branch (spinning while something runs, with a dot when
+/// a queued PR finished) and the menu lists the queue and each branch. The menu is rebuilt right
+/// before it opens and on every update while it's open; the add-PR submenu, each time it opens.
 @MainActor
 final class StatusController: NSObject, NSMenuDelegate {
     nonisolated static let notifyPassedKey = "notifyPassed"
@@ -11,6 +12,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     private let menu = NSMenu()
     private let monitor: Monitor
     private var menuIsOpen = false
+    private weak var addPRMenu: NSMenu?
     private var spinTimer: Timer?
     private var spinFrame = 0
 
@@ -35,8 +37,8 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     private func updateIcon() {
         let overall = monitor.overall
-        item.button?.image = StatusIcons.menuBar(overall, frame: spinFrame)
-        item.button?.toolTip = tooltip(overall)
+        item.button?.image = StatusIcons.menuBar(overall, frame: spinFrame, badge: monitor.hasUnseen)
+        item.button?.toolTip = tooltip(overall) + (monitor.hasUnseen ? " · um PR da fila terminou" : "")
         if case .running = overall {
             startSpinning()
         } else {
@@ -52,7 +54,8 @@ final class StatusController: NSObject, NSMenuDelegate {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.spinFrame = (self.spinFrame + 1) % StatusIcons.spinFrames
-                self.item.button?.image = StatusIcons.menuBar(self.monitor.overall, frame: self.spinFrame)
+                self.item.button?.image = StatusIcons.menuBar(self.monitor.overall, frame: self.spinFrame,
+                                                              badge: self.monitor.hasUnseen)
             }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -72,28 +75,47 @@ final class StatusController: NSObject, NSMenuDelegate {
     // MARK: Menu
 
     func menuNeedsUpdate(_ menu: NSMenu) {
-        rebuildMenu()
+        if menu === addPRMenu {
+            menu.items = MenuBuilder.addPRItems(for: model(), target: self)
+        } else if menu === self.menu {
+            rebuildMenu()
+        }
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        guard menu === self.menu else { return }
         menuIsOpen = true
+        // The rows built a moment ago still show which PRs are new; the menu bar dot can go.
+        monitor.markQueueSeen()
+        updateIcon()
         Notifier.shared.loadStatus { [weak self] in self?.update() }
         if (monitor.lastUpdate?.timeIntervalSinceNow ?? -.infinity) < -10 {
             monitor.refresh()
         }
+        if (monitor.candidates.loadedAt?.timeIntervalSinceNow ?? -.infinity) < -60 {
+            monitor.refreshCandidates()
+        }
     }
 
     func menuDidClose(_ menu: NSMenu) {
-        menuIsOpen = false
+        if menu === self.menu {
+            menuIsOpen = false
+        }
     }
 
-    private func rebuildMenu() {
-        let model = MenuModel(
+    private func model() -> MenuModel {
+        MenuModel(
             config: monitor.config, states: monitor.states, lastUpdate: monitor.lastUpdate,
             isRefreshing: monitor.isRefreshing, configError: monitor.configError,
             notifyPassed: UserDefaults.standard.bool(forKey: Self.notifyPassedKey), opensAtLogin: LoginItem.isEnabled,
-            notificationsOff: Notifier.shared.isOff)
-        menu.items = MenuBuilder.items(for: model, target: self)
+            notificationsOff: Notifier.shared.isOff, queue: monitor.queue, queueErrors: monitor.queueErrors,
+            candidates: monitor.candidates)
+    }
+
+    private func rebuildMenu() {
+        menu.items = MenuBuilder.items(for: model(), target: self)
+        addPRMenu = menu.items.first { $0.tag == MenuBuilder.addPRTag }?.submenu
+        addPRMenu?.delegate = self
     }
 
     // MARK: Actions
@@ -139,6 +161,60 @@ final class StatusController: NSObject, NSMenuDelegate {
             await askForRepo(input, problem: "\(typed): \(error.localizedDescription).")
         }
     }
+
+    // MARK: PR queue
+
+    @objc func pastePRLink() {
+        Task { await askForPR("", problem: nil) }
+    }
+
+    private func askForPR(_ previous: String, problem: String?) async {
+        guard let text = AddPRDialog.ask(previous, problem: problem) else { return }
+        guard let ref = PRRef.find(in: text) else {
+            await askForPR(text, problem: "Não achei um link de PR aí. Ele é assim: https://github.com/dono/repo/pull/123")
+            return
+        }
+        do {
+            try await monitor.addToQueue(ref)
+        } catch {
+            await askForPR(text, problem: "\(ref.shortName): \(error.localizedDescription).")
+        }
+    }
+
+    /// A PR picked in the add-PR submenu: in if it's out, out if it's in.
+    @objc func toggleQueuedPR(_ sender: NSMenuItem) {
+        guard let text = sender.representedObject as? String, let ref = PRRef.find(in: text) else { return }
+        if monitor.queue.contains(where: { $0.ref.id == ref.id }) {
+            monitor.removeFromQueue { $0.ref.id == ref.id }
+            return
+        }
+        Task {
+            do {
+                try await monitor.addToQueue(ref)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Não deu para adicionar \(ref.shortName)"
+                alert.informativeText = error.localizedDescription
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
+            }
+        }
+    }
+
+    @objc func removeQueuedPR(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        monitor.removeFromQueue { $0.ref.id == id }
+    }
+
+    @objc func removePassedPRs() {
+        monitor.removeFromQueue { $0.checks == .passed }
+    }
+
+    @objc func clearQueue() {
+        monitor.removeFromQueue { _ in true }
+    }
+
+    // MARK: Repos and settings
 
     @objc func removeRepo(_ sender: NSMenuItem) {
         guard let repo = sender.representedObject as? String else { return }
