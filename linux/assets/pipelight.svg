@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 1024 1024">
+  <!-- Same tile, pipeline, palette and white glyphs as scripts/make-icon.swift. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#2B3A55"/><stop offset="1" stop-color="#121A28"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="14"/>
+      <feOffset dy="14"/><feComponentTransfer><feFuncA type="linear" slope=".3"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="disc-shadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="10"/>
+      <feOffset dy="8"/><feComponentTransfer><feFuncA type="linear" slope=".35"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)" filter="url(#shadow)"/>
+  <path d="M262 512H762" stroke="#40506E" stroke-width="30" stroke-linecap="round"/>
+  <path d="M262 512H512" stroke="#34C759" stroke-width="30"/>
+  <g filter="url(#disc-shadow)">
+    <circle cx="262" cy="512" r="92" fill="#34C759"/>
+    <circle cx="512" cy="512" r="92" fill="#34C759"/>
+    <circle cx="762" cy="512" r="92" fill="#FF9F0A"/>
+  </g>
+  <path d="M222 510L250 540L304 480 M472 510L500 540L554 480" fill="none" stroke="white" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <g transform="translate(651.6 401.6) scale(9.2)">
+    <path d="M7.364 10.758 A4.8 4.8 0 0 1 14.472 7.886" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
+    <path d="M17.515 10.727 L16.525 6.343 L13.131 9.737 Z" fill="white" stroke="white" stroke-width=".4" stroke-linejoin="round"/>
+    <path d="M16.636 13.242 A4.8 4.8 0 0 1 9.528 16.114" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
+    <path d="M6.485 13.273 L7.475 17.657 L10.869 14.263 Z" fill="white" stroke="white" stroke-width=".4" stroke-linejoin="round"/>
+  </g>
+</svg>
