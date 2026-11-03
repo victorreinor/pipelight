@@ -19,6 +19,8 @@
 
 ## Instalar
 
+**Linux:** há um port nativo para GTK/AppIndicator nesta versão do código. No Ubuntu/Debian, siga o [guia de instalação do Linux](linux/README.md) ou execute `./scripts/install-linux.sh --start` se já tiver as dependências. O instalador abaixo e o arquivo `Pipelight.zip` continuam sendo para macOS.
+
 O Pipelight conversa com o GitHub pelo [GitHub CLI](https://cli.github.com) (`gh`), usando o login que você já tem. Se ainda não tem o `gh`:
 
 ```sh

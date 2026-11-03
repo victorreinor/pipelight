@@ -11,7 +11,7 @@ REPO="victorreinor/pipelight"
 URL="https://github.com/$REPO/releases/latest/download/Pipelight.zip"
 
 if [ "$(uname)" != "Darwin" ]; then
-  echo "O Pipelight só roda no macOS." >&2
+  echo "Este instalador baixa a versão macOS. Para Linux, use ./scripts/install-linux.sh na cópia do projeto (veja linux/README.md)." >&2
   exit 1
 fi
 major="$(sw_vers -productVersion | cut -d. -f1)"

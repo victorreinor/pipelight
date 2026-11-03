@@ -6,7 +6,13 @@ O nome é *pipeline* + *light*: a luzinha que diz como está a esteira. Antes de
 
 Detalhes de arquitetura, regras de status e de notificação: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Port para Linux
+
+`linux/` contém o cliente GTK 3/AppIndicator em Python, independente do build Swift. Veja [linux/README.md](linux/README.md). Para mudanças nele, use `./scripts/test-linux.sh` e o teste gráfico `linux/tests/smoke_gtk.py` em Xvfb/D-Bus isolados; os comandos de verificação macOS abaixo não se aplicam ao port. Preserve as regras do `PipelightCore`, a comunicação exclusivamente pelo `gh` e a interface em pt-BR. Instale com `./scripts/install-linux.sh`, gere o pacote com `./scripts/build-linux.sh`. Não execute o modo `--demo` sobre dados reais; ele já usa uma pasta temporária. O início automático é opcional no Linux. `config.json` é compatível com o macOS; a fila Linux tem formato próprio.
+
 ## Comandos
+
+No Linux, o pedido do usuário para destacar o status substitui a bolinha sobreposta: a bandeja mostra um único símbolo, agregando branches e PRs (execução > falha > PR pronto). Setas animadas indicam execução, vermelhas se houver falha simultânea; check azul indica PR pronto. As linhas de PR também usam um só símbolo. A regra da bolinha descrita abaixo continua específica do aplicativo macOS.
 
 ```sh
 swift build                       # build debug
